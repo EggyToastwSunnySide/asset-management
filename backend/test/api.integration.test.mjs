@@ -692,16 +692,17 @@ describe('asset management API', { skip: skip || false }, () => {
     }
 
     // ram_gb has values on two EDIT_A assets, one of them soft-deleted, and on a
-    // LAPTOP, which must not count: the lock is per type.
+    // LAPTOP, which must not count: the lock is per type. gpu has a value on one.
     before(async () => {
       assert.equal((await api('POST', '/asset-types', { code: 'EDIT_A', name: 'Edit test type' })).status, 201);
-      for (const [key, dataType] of [['cpu', 'text'], ['ram_gb', 'number'], ['colour', 'text']]) {
+      for (const [key, dataType] of [['cpu', 'text'], ['ram_gb', 'number'], ['colour', 'text'], ['gpu', 'text']]) {
         assert.equal((await api('POST', base, { key, label: key, dataType })).status, 201);
       }
       for (const [tag, type] of [['EDIT-001', 'EDIT_A'], ['EDIT-002', 'EDIT_A'], ['EDIT-003', 'LAPTOP']]) {
         assert.equal((await api('POST', '/assets', asset(tag, { type }))).status, 201);
       }
       await pool.query(`UPDATE assets SET extended_attributes = '{"ram_gb": 16, "cpu": "i7"}' WHERE asset_tag IN ('EDIT-001', 'EDIT-002')`);
+      await pool.query(`UPDATE assets SET extended_attributes = extended_attributes || '{"gpu": "rtx"}' WHERE asset_tag = 'EDIT-001'`);
       await pool.query(`UPDATE assets SET extended_attributes = '{"ram_gb": 8}' WHERE asset_tag = 'EDIT-003'`);
       const deleted = await api('GET', '/assets?search=EDIT-002');
       assert.equal((await api('DELETE', '/assets/' + deleted.body.items[0].id)).status, 204);
@@ -734,8 +735,12 @@ describe('asset management API', { skip: skip || false }, () => {
       const res = await api('PUT', base + '/ram_gb', { label: 'RAM', dataType: 'text', isRequired: false });
       assert.equal(res.status, 409);
       assert.equal(res.body.error.code, 'DATA_TYPE_LOCKED');
-      assert.match(res.body.error.fields.dataType, /\b2 assets\b/);
+      assert.match(res.body.error.fields.dataType, /\b2 assets of this type, deleted ones included, already hold a value\b/);
       assert.equal((await attributeRow('ram_gb')).data_type, 'number');
+
+      const one = await api('PUT', base + '/gpu', { label: 'GPU', dataType: 'number', isRequired: false });
+      assert.equal(one.status, 409);
+      assert.match(one.body.error.fields.dataType, /\b1 asset of this type, deleted ones included, already holds a value\b/);
 
       const same = await api('PUT', base + '/ram_gb', { label: 'RAM', dataType: 'number', isRequired: false });
       assert.equal(same.status, 200);

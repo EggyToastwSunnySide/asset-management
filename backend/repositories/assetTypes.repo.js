@@ -123,7 +123,8 @@ async function updateAttribute(typeCode, key, input) {
       );
       const { n } = counts[0];
       if (n > 0) {
-        const message = `The data type cannot be changed: ${n} ${n === 1 ? 'asset' : 'assets'} of this type, deleted ones included, already hold a value for "${key}".`;
+        const [noun, verb] = n === 1 ? ['asset', 'holds'] : ['assets', 'hold'];
+        const message = `The data type cannot be changed: ${n} ${noun} of this type, deleted ones included, already ${verb} a value for "${key}".`;
         throw new ApiError(409, 'DATA_TYPE_LOCKED', message, { dataType: message });
       }
     }
