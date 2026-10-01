@@ -767,6 +767,41 @@ describe('asset management API', { skip: skip || false }, () => {
     });
   });
 
+  // Setting and toggling the flag is covered by US18-T3 ("creates an attribute on
+  // a type", "defaults isRequired to false") and US18-T4 ("toggles isRequired both
+  // ways"). Enforcement on asset save is US18-T6.
+  describe('US18-T5 required or optional attribute', () => {
+    const base = '/asset-types/REQ_A/attributes';
+
+    async function allExtendedAttributes() {
+      const { rows } = await pool.query('SELECT id, extended_attributes::text AS value FROM assets ORDER BY id');
+      return rows;
+    }
+
+    // One asset holds a value for the key, one does not: making the attribute
+    // required must not backfill, strip or rewrite either.
+    before(async () => {
+      assert.equal((await api('POST', '/asset-types', { code: 'REQ_A', name: 'Required test type' })).status, 201);
+      assert.equal((await api('POST', base, { key: 'owner', label: 'Owner', dataType: 'text' })).status, 201);
+      for (const tag of ['REQ-001', 'REQ-002']) {
+        assert.equal((await api('POST', '/assets', asset(tag, { type: 'REQ_A' }))).status, 201);
+      }
+      await pool.query(`UPDATE assets SET extended_attributes = '{"owner": "IT", "note": "x"}' WHERE asset_tag = 'REQ-001'`);
+    });
+
+    test("toggling isRequired leaves every asset's extended_attributes byte-identical", async () => {
+      const before = await allExtendedAttributes();
+      assert.ok(before.some((a) => a.value.includes('"owner"')));
+
+      for (const isRequired of [true, false, true]) {
+        const res = await api('PUT', base + '/owner', { label: 'Owner', dataType: 'text', isRequired });
+        assert.equal(res.status, 200);
+        assert.equal(res.body.isRequired, isRequired);
+        assert.deepEqual(await allExtendedAttributes(), before);
+      }
+    });
+  });
+
   test('unknown API routes answer in JSON', async () => {
     const res = await api('GET', '/nope');
     assert.equal(res.status, 404);

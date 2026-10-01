@@ -52,6 +52,10 @@ const attributeKeyParameter = {
   schema: { type: 'string', pattern: '^[a-z][a-z0-9_]*$', maxLength: 32, examples: ['screen_size'] },
 };
 
+// US18-T5. Enforcement on asset save arrives with US18-T6.
+const IS_REQUIRED_DESCRIPTION =
+  'Whether assets of this type must have a value. Setting or changing it never rewrites stored values: the rule applies from the next save of an asset, and only while the attribute is active.';
+
 const FILTER_DESCRIPTIONS = {
   type: 'Asset type code',
   status: 'Asset status code',
@@ -279,6 +283,7 @@ const spec = {
           'Replaces `label`, `dataType` and `isRequired`; hidden attributes can be edited too. The key never changes:',
           'it may be sent back unchanged, but a different `key` is a 422 under `fields.key`. The data type can only change',
           'while no asset of this type, deleted ones included, holds a value for the key.',
+          'Changing `isRequired` leaves stored values untouched; the rule applies from the next save of an asset, active attributes only.',
         ].join(' '),
         requestBody: {
           required: true,
@@ -661,7 +666,7 @@ const spec = {
           key: { type: 'string', maxLength: 32, pattern: '^[a-z][a-z0-9_]*$', examples: ['screen_size'] },
           label: { type: 'string', maxLength: 255 },
           dataType: { type: 'string', enum: ATTRIBUTE_DATA_TYPES },
-          isRequired: { type: 'boolean', default: false },
+          isRequired: { type: 'boolean', default: false, description: IS_REQUIRED_DESCRIPTION },
         },
       },
       AttributeUpdate: {
@@ -672,7 +677,7 @@ const spec = {
           key: { type: 'string', description: 'Optional; when sent it must equal the path `key`' },
           label: { type: 'string', maxLength: 255 },
           dataType: { type: 'string', enum: ATTRIBUTE_DATA_TYPES },
-          isRequired: { type: 'boolean' },
+          isRequired: { type: 'boolean', description: IS_REQUIRED_DESCRIPTION },
         },
       },
       Attribute: {
@@ -682,7 +687,7 @@ const spec = {
           key: { type: 'string' },
           label: { type: 'string' },
           dataType: { type: 'string', enum: ATTRIBUTE_DATA_TYPES },
-          isRequired: { type: 'boolean' },
+          isRequired: { type: 'boolean', description: IS_REQUIRED_DESCRIPTION },
           isActive: { type: 'boolean', description: 'False once hidden; a hidden attribute keeps its key' },
         },
       },
