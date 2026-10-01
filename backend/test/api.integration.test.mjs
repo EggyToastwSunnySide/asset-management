@@ -43,6 +43,16 @@ function asset(tag, overrides = {}) {
   };
 }
 
+async function exportSheet(body) {
+  const res = await api('POST', '/exports/assets', body);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.match(res.headers.get('content-type'), /spreadsheetml/);
+  assert.match(res.headers.get('content-disposition'), /attachment; filename="inventory-export-\d{4}-\d{2}-\d{2}\.xlsx"/);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(res.body);
+  return { sheet: workbook.getWorksheet('Assets'), rowCount: Number(res.headers.get('x-export-row-count')) };
+}
+
 describe('asset management API', { skip: skip || false }, () => {
   before(async () => {
     const app = require('../app');
@@ -239,16 +249,6 @@ describe('asset management API', { skip: skip || false }, () => {
   });
 
   describe('S-03 / S-04 export', () => {
-    async function exportSheet(body) {
-      const res = await api('POST', '/exports/assets', body);
-      assert.equal(res.status, 200, JSON.stringify(res.body));
-      assert.match(res.headers.get('content-type'), /spreadsheetml/);
-      assert.match(res.headers.get('content-disposition'), /attachment; filename="inventory-export-\d{4}-\d{2}-\d{2}\.xlsx"/);
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(res.body);
-      return { sheet: workbook.getWorksheet('Assets'), rowCount: Number(res.headers.get('x-export-row-count')) };
-    }
-
     test('exports every filtered row across pages, in list order, with dates as dates', async () => {
       const { sheet, rowCount } = await exportSheet({
         filters: { search: 'S02-', type: ['PRINTER'], locationNot: 'OFFICE' },
@@ -564,6 +564,63 @@ describe('asset management API', { skip: skip || false }, () => {
       assert.deepEqual((await api('GET', '/asset-types/READ_A/attributes?includeInactive=true')).body, [zeta, hidden, alpha]);
       assert.equal((await api('GET', '/asset-types/READ_A/attributes?includeInactive=yes')).status, 422);
       assert.equal((await api('GET', '/asset-types/NO_SUCH_TYPE/attributes')).status, 404);
+    });
+  });
+
+  describe('US17-T6 assets can use a new type', () => {
+    let created;
+
+    // Extended attributes arrive with US18-T6; until then no asset response carries them.
+    function assertNoExtendedAttributes(body) {
+      assert.equal('extendedAttributes' in body, false);
+      assert.equal('extended_attributes' in body, false);
+    }
+
+    before(async () => {
+      for (const [code, name] of [['T6_ALPHA', 'T6 Alpha type'], ['T6_BETA', 'T6 Beta type']]) {
+        assert.equal((await api('POST', '/asset-types', { code, name })).status, 201);
+      }
+    });
+
+    test('creates an asset with a type made through POST /asset-types', async () => {
+      const res = await api('POST', '/assets', asset('T6-001', { type: 'T6_ALPHA' }));
+      assert.equal(res.status, 201, JSON.stringify(res.body));
+      created = res.body;
+      assert.deepEqual([created.type, created.typeName], ['T6_ALPHA', 'T6 Alpha type']);
+      assertNoExtendedAttributes(created);
+
+      const read = await api('GET', '/assets/' + created.id);
+      assert.equal(read.status, 200);
+      assert.deepEqual([read.body.type, read.body.typeName], ['T6_ALPHA', 'T6 Alpha type']);
+      assertNoExtendedAttributes(read.body);
+    });
+
+    test('switches the asset to another new type', async () => {
+      const res = await api('PUT', '/assets/' + created.id, asset('T6-001', { type: 'T6_BETA' }));
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.deepEqual([res.body.type, res.body.typeName], ['T6_BETA', 'T6 Beta type']);
+      assertNoExtendedAttributes(res.body);
+    });
+
+    test('filters the list by the new type, and excludes it with typeNot', async () => {
+      assert.equal((await api('POST', '/assets', asset('T6-002', { type: 'T6_ALPHA' }))).status, 201);
+
+      const only = await api('GET', '/assets?type=T6_BETA');
+      assert.deepEqual(only.body.items.map((a) => a.tag), ['T6-001']);
+      only.body.items.forEach(assertNoExtendedAttributes);
+
+      const excluded = await api('GET', '/assets?search=T6-&typeNot=T6_BETA');
+      assert.deepEqual(excluded.body.items.map((a) => a.tag), ['T6-002']);
+    });
+
+    test("exports show the new type's name", async () => {
+      const { sheet, rowCount } = await exportSheet({ filters: { search: 'T6-' } });
+      assert.equal(rowCount, 2);
+      assert.equal(sheet.getCell('C1').value, 'Type');
+      assert.deepEqual(
+        [sheet.getCell('A2').value, sheet.getCell('C2').value, sheet.getCell('A3').value, sheet.getCell('C3').value],
+        ['T6-001', 'T6 Beta type', 'T6-002', 'T6 Alpha type'],
+      );
     });
   });
 
