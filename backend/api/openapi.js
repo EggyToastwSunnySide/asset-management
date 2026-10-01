@@ -34,6 +34,16 @@ const codeList = {
   description: 'One code or an array of codes.',
 };
 
+// Inlined, not a components $ref: as a path-level $ref, Swagger UI 5 (OAS 3.1) left
+// it unresolved on GET /asset-types/{code}, so `{code}` could not be filled in.
+const assetTypeCodeParameter = {
+  name: 'code',
+  in: 'path',
+  required: true,
+  description: 'Asset type code, case-insensitive',
+  schema: code,
+};
+
 const FILTER_DESCRIPTIONS = {
   type: 'Asset type code',
   status: 'Asset status code',
@@ -177,7 +187,7 @@ const spec = {
       },
     },
     '/asset-types/{code}': {
-      parameters: [{ $ref: '#/components/parameters/AssetTypeCode' }],
+      parameters: [assetTypeCodeParameter],
       get: {
         tags: ['Asset types'],
         summary: 'Read an asset type with its custom attributes',
@@ -199,7 +209,7 @@ const spec = {
       },
     },
     '/asset-types/{code}/attributes': {
-      parameters: [{ $ref: '#/components/parameters/AssetTypeCode' }],
+      parameters: [assetTypeCodeParameter],
       get: {
         tags: ['Asset types'],
         summary: "List an asset type's custom attributes",
@@ -474,13 +484,6 @@ const spec = {
   components: {
     parameters: {
       AssetId: { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
-      AssetTypeCode: {
-        name: 'code',
-        in: 'path',
-        required: true,
-        description: 'Asset type code, case-insensitive',
-        schema: code,
-      },
       IncludeInactive: {
         name: 'includeInactive',
         in: 'query',
