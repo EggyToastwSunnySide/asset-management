@@ -629,6 +629,144 @@ describe('asset management API', { skip: skip || false }, () => {
     });
   });
 
+  describe('US18-T4 edit, hide and restore a custom attribute', () => {
+    const base = '/asset-types/EDIT_A/attributes';
+
+    async function attributeRow(key) {
+      const { rows } = await pool.query(
+        `SELECT a.label, a.data_type, a.is_required, a.is_active, a.updated_at
+         FROM asset_type_attributes a JOIN asset_types t ON t.id = a.asset_type_id
+         WHERE t.code = 'EDIT_A' AND a.key = $1`,
+        [key],
+      );
+      return rows[0];
+    }
+
+    async function extendedAttributes(tag) {
+      const { rows } = await pool.query('SELECT extended_attributes::text AS value FROM assets WHERE asset_tag = $1', [tag]);
+      return rows[0].value;
+    }
+
+    // ram_gb has values on two EDIT_A assets, one of them soft-deleted, and on a
+    // LAPTOP, which must not count: the lock is per type.
+    before(async () => {
+      assert.equal((await api('POST', '/asset-types', { code: 'EDIT_A', name: 'Edit test type' })).status, 201);
+      for (const [key, dataType] of [['cpu', 'text'], ['ram_gb', 'number'], ['colour', 'text']]) {
+        assert.equal((await api('POST', base, { key, label: key, dataType })).status, 201);
+      }
+      for (const [tag, type] of [['EDIT-001', 'EDIT_A'], ['EDIT-002', 'EDIT_A'], ['EDIT-003', 'LAPTOP']]) {
+        assert.equal((await api('POST', '/assets', asset(tag, { type }))).status, 201);
+      }
+      await pool.query(`UPDATE assets SET extended_attributes = '{"ram_gb": 16, "cpu": "i7"}' WHERE asset_tag IN ('EDIT-001', 'EDIT-002')`);
+      await pool.query(`UPDATE assets SET extended_attributes = '{"ram_gb": 8}' WHERE asset_tag = 'EDIT-003'`);
+      const deleted = await api('GET', '/assets?search=EDIT-002');
+      assert.equal((await api('DELETE', '/assets/' + deleted.body.items[0].id)).status, 204);
+    });
+
+    test('edits the label and moves updated_at', async () => {
+      const before = await attributeRow('cpu');
+      const res = await api('PUT', base + '/cpu', { label: 'Processor', dataType: 'text', isRequired: false });
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.deepEqual(res.body, { key: 'cpu', label: 'Processor', dataType: 'text', isRequired: false, isActive: true });
+      assert.ok((await attributeRow('cpu')).updated_at > before.updated_at);
+    });
+
+    test('toggles isRequired both ways', async () => {
+      for (const isRequired of [true, false]) {
+        const res = await api('PUT', base + '/cpu', { label: 'Processor', dataType: 'text', isRequired });
+        assert.equal(res.status, 200);
+        assert.equal(res.body.isRequired, isRequired);
+        assert.equal((await attributeRow('cpu')).is_required, isRequired);
+      }
+    });
+
+    test('changes the data type while no asset holds a value', async () => {
+      const res = await api('PUT', base + '/colour', { label: 'Colour', dataType: 'boolean', isRequired: false });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.dataType, 'boolean');
+    });
+
+    test('refuses a data type change once assets of the type hold values, deleted ones included', async () => {
+      const res = await api('PUT', base + '/ram_gb', { label: 'RAM', dataType: 'text', isRequired: false });
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error.code, 'DATA_TYPE_LOCKED');
+      assert.match(res.body.error.fields.dataType, /\b2 assets\b/);
+      assert.equal((await attributeRow('ram_gb')).data_type, 'number');
+
+      const same = await api('PUT', base + '/ram_gb', { label: 'RAM', dataType: 'number', isRequired: false });
+      assert.equal(same.status, 200);
+      assert.equal(same.body.label, 'RAM');
+    });
+
+    test('rejects a body key that differs from the path; the same key is accepted', async () => {
+      const res = await api('PUT', base + '/cpu', { key: 'processor', label: 'Processor', dataType: 'text', isRequired: false });
+      assert.equal(res.status, 422);
+      assert.equal(res.body.error.code, 'VALIDATION_FAILED');
+      assert.match(res.body.error.fields.key, /cannot be changed/);
+
+      const same = await api('PUT', base + '/cpu', { key: 'cpu', label: 'Processor', dataType: 'text', isRequired: false });
+      assert.equal(same.status, 200);
+    });
+
+    test('rejects a body missing any field: PUT replaces the whole definition', async () => {
+      const res = await api('PUT', base + '/cpu', { label: '  ' });
+      assert.equal(res.status, 422);
+      assert.deepEqual(Object.keys(res.body.error.fields).sort(), ['dataType', 'isRequired', 'label']);
+    });
+
+    test('hides an attribute without touching asset values; hiding again is harmless', async () => {
+      const valuesBefore = await extendedAttributes('EDIT-001');
+      for (let i = 0; i < 2; i += 1) {
+        assert.equal((await api('DELETE', base + '/ram_gb')).status, 204);
+      }
+      assert.equal((await attributeRow('ram_gb')).is_active, false);
+
+      const visible = await api('GET', '/asset-types/EDIT_A');
+      assert.equal(visible.body.attributes.some((a) => a.key === 'ram_gb'), false);
+      const all = await api('GET', '/asset-types/EDIT_A?includeInactive=true');
+      assert.equal(all.body.attributes.find((a) => a.key === 'ram_gb').isActive, false);
+
+      assert.equal(await extendedAttributes('EDIT-001'), valuesBefore);
+    });
+
+    test('edits a hidden attribute', async () => {
+      const res = await api('PUT', base + '/ram_gb', { label: 'Memory (GB)', dataType: 'number', isRequired: true });
+      assert.equal(res.status, 200);
+      assert.deepEqual(res.body, { key: 'ram_gb', label: 'Memory (GB)', dataType: 'number', isRequired: true, isActive: false });
+    });
+
+    test('a hidden key still cannot be created again', async () => {
+      const res = await api('POST', base, { key: 'ram_gb', label: 'RAM', dataType: 'number' });
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error.code, 'DUPLICATE_KEY');
+    });
+
+    test('restores a hidden attribute with its values intact; restoring again is harmless', async () => {
+      const valuesBefore = await extendedAttributes('EDIT-001');
+      const res = await api('POST', base + '/ram_gb/restore');
+      assert.equal(res.status, 200);
+      assert.deepEqual(res.body, { key: 'ram_gb', label: 'Memory (GB)', dataType: 'number', isRequired: true, isActive: true });
+
+      const visible = await api('GET', '/asset-types/EDIT_A');
+      assert.ok(visible.body.attributes.some((a) => a.key === 'ram_gb'));
+      assert.equal(await extendedAttributes('EDIT-001'), valuesBefore);
+      assert.match(valuesBefore, /"ram_gb": 16/);
+
+      assert.equal((await api('POST', base + '/ram_gb/restore')).status, 200);
+    });
+
+    test('404s for an unknown type or key', async () => {
+      const body = { label: 'x', dataType: 'text', isRequired: false };
+      for (const path of ['/asset-types/NO_SUCH_TYPE/attributes/cpu', base + '/no_such_key']) {
+        for (const [method, suffix, payload] of [['PUT', '', body], ['DELETE', ''], ['POST', '/restore']]) {
+          const res = await api(method, path + suffix, payload);
+          assert.equal(res.status, 404, `${method} ${path}${suffix}`);
+          assert.equal(res.body.error.code, 'NOT_FOUND');
+        }
+      }
+    });
+  });
+
   test('unknown API routes answer in JSON', async () => {
     const res = await api('GET', '/nope');
     assert.equal(res.status, 404);

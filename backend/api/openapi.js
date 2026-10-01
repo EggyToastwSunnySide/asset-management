@@ -44,6 +44,14 @@ const assetTypeCodeParameter = {
   schema: code,
 };
 
+const attributeKeyParameter = {
+  name: 'key',
+  in: 'path',
+  required: true,
+  description: 'Attribute key, matched exactly',
+  schema: { type: 'string', pattern: '^[a-z][a-z0-9_]*$', maxLength: 32, examples: ['screen_size'] },
+};
+
 const FILTER_DESCRIPTIONS = {
   type: 'Asset type code',
   status: 'Asset status code',
@@ -258,6 +266,76 @@ const spec = {
             }),
           },
           422: response('ValidationFailed'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
+    '/asset-types/{code}/attributes/{key}': {
+      parameters: [assetTypeCodeParameter, attributeKeyParameter],
+      put: {
+        tags: ['Asset types'],
+        summary: 'Edit a custom attribute',
+        description: [
+          'Replaces `label`, `dataType` and `isRequired`; hidden attributes can be edited too. The key never changes:',
+          'it may be sent back unchanged, but a different `key` is a 422 under `fields.key`. The data type can only change',
+          'while no asset of this type, deleted ones included, holds a value for the key.',
+        ].join(' '),
+        requestBody: {
+          required: true,
+          content: json(ref('AttributeUpdate'), { label: 'Screen size (inches)', dataType: 'number', isRequired: true }),
+        },
+        responses: {
+          200: {
+            description: 'The edited attribute',
+            content: json(ref('Attribute'), {
+              key: 'screen_size',
+              label: 'Screen size (inches)',
+              dataType: 'number',
+              isRequired: true,
+              isActive: true,
+            }),
+          },
+          400: response('BadRequest'),
+          404: response('NotFound'),
+          409: {
+            description: 'Assets of this type hold values for the key, so its data type is locked (`DATA_TYPE_LOCKED`, `fields.dataType`).',
+            content: json(ref('Error'), {
+              error: {
+                code: 'DATA_TYPE_LOCKED',
+                message:
+                  'The data type cannot be changed: 3 assets of this type, deleted ones included, already hold a value for "screen_size".',
+                fields: {
+                  dataType:
+                    'The data type cannot be changed: 3 assets of this type, deleted ones included, already hold a value for "screen_size".',
+                },
+              },
+            }),
+          },
+          422: response('ValidationFailed'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+      delete: {
+        tags: ['Asset types'],
+        summary: 'Hide a custom attribute',
+        description:
+          'Sets `isActive` to false. The attribute and every asset value for it are kept, and its key stays reserved. Hiding a hidden attribute is a no-op.',
+        responses: {
+          204: { description: 'Hidden' },
+          404: response('NotFound'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
+    '/asset-types/{code}/attributes/{key}/restore': {
+      parameters: [assetTypeCodeParameter, attributeKeyParameter],
+      post: {
+        tags: ['Asset types'],
+        summary: 'Restore a hidden custom attribute',
+        description: 'Sets `isActive` back to true; asset values kept while it was hidden show again. Restoring a visible attribute is a no-op.',
+        responses: {
+          200: { description: 'The restored attribute', content: json(ref('Attribute')) },
+          404: response('NotFound'),
           503: response('DatabaseUnavailable'),
         },
       },
@@ -584,6 +662,17 @@ const spec = {
           label: { type: 'string', maxLength: 255 },
           dataType: { type: 'string', enum: ATTRIBUTE_DATA_TYPES },
           isRequired: { type: 'boolean', default: false },
+        },
+      },
+      AttributeUpdate: {
+        type: 'object',
+        required: ['label', 'dataType', 'isRequired'],
+        additionalProperties: false,
+        properties: {
+          key: { type: 'string', description: 'Optional; when sent it must equal the path `key`' },
+          label: { type: 'string', maxLength: 255 },
+          dataType: { type: 'string', enum: ATTRIBUTE_DATA_TYPES },
+          isRequired: { type: 'boolean' },
         },
       },
       Attribute: {
