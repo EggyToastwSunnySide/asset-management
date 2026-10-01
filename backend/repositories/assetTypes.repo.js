@@ -72,4 +72,24 @@ async function createAttribute(typeCode, input) {
   return rows[0];
 }
 
-module.exports = { createAssetType, createAttribute };
+/**
+ * The active type `typeCode` with its attributes in creation order (US17-T5):
+ * `{ code, name, attributes }`. Hidden attributes only with `includeInactive`.
+ */
+async function getAssetTypeWithAttributes(typeCode, { includeInactive }) {
+  const { rows: types } = await db.query(
+    'SELECT id, code, name FROM asset_types WHERE code = $1 AND is_active',
+    [typeCode],
+  );
+  const type = types[0];
+  if (!type) throw assetTypeNotFound();
+  const { rows: attributes } = await db.query(
+    `SELECT ${ATTRIBUTE_COLUMNS} FROM asset_type_attributes
+     WHERE asset_type_id = $1 AND (is_active OR $2)
+     ORDER BY created_at, key`,
+    [type.id, includeInactive],
+  );
+  return { code: type.code, name: type.name, attributes };
+}
+
+module.exports = { createAssetType, createAttribute, getAssetTypeWithAttributes };

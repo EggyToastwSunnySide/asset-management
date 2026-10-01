@@ -3,7 +3,7 @@
  * travels in the same `{ code, name }` shape as GET /api/reference-data's `types`.
  */
 
-const { checkBody } = require('../validation');
+const { checkBody, checkQuery } = require('../validation');
 
 const ASSET_TYPE_FIELDS = ['code', 'name'];
 const ATTRIBUTE_FIELDS = ['key', 'label', 'dataType', 'isRequired'];
@@ -38,6 +38,16 @@ function parseCreateAttribute(body) {
   });
 }
 
+/**
+ * GET /api/asset-types/:code (and /attributes) query (US17-T5). Only `true` or
+ * `false`: a typo such as `yes` is a 422 rather than silently hiding attributes.
+ */
+function parseAttributeQuery(query) {
+  const c = checkQuery(query);
+  const includeInactive = c.oneOf('includeInactive', ['true', 'false'], { required: false, fallback: 'false' });
+  return c.done({ includeInactive: includeInactive === 'true' });
+}
+
 function toAssetTypeDto(row) {
   return { code: row.code, name: row.name };
 }
@@ -56,6 +66,7 @@ module.exports = {
   ATTRIBUTE_DATA_TYPES,
   parseCreateAssetType,
   parseCreateAttribute,
+  parseAttributeQuery,
   toAssetTypeDto,
   toAttributeDto,
 };

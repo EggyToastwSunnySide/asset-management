@@ -501,6 +501,72 @@ describe('asset management API', { skip: skip || false }, () => {
     });
   });
 
+  describe('US17-T5 read a type with its attribute config', () => {
+    const zeta = { key: 'zeta', label: 'Zeta', dataType: 'text', isRequired: false, isActive: true };
+    const hidden = { key: 'hidden_one', label: 'Hidden', dataType: 'boolean', isRequired: false, isActive: false };
+    const alpha = { key: 'alpha', label: 'Alpha', dataType: 'number', isRequired: true, isActive: true };
+
+    before(async () => {
+      for (const code of ['READ_A', 'READ_EMPTY', 'READ_RETIRED']) {
+        assert.equal((await api('POST', '/asset-types', { code, name: 'Read test ' + code })).status, 201);
+      }
+      // Created out of key order, so the response order can only come from created_at.
+      for (const { isActive, ...input } of [zeta, hidden, alpha]) {
+        assert.equal((await api('POST', '/asset-types/READ_A/attributes', input)).status, 201);
+      }
+      await pool.query(
+        `UPDATE asset_type_attributes SET is_active = false
+         WHERE key = 'hidden_one' AND asset_type_id = (SELECT id FROM asset_types WHERE code = 'READ_A')`,
+      );
+      await pool.query(`UPDATE asset_types SET is_active = false WHERE code = 'READ_RETIRED'`);
+    });
+
+    test('returns the type with its active attributes in creation order', async () => {
+      const res = await api('GET', '/asset-types/read_a');
+      assert.equal(res.status, 200);
+      assert.deepEqual(res.body, { code: 'READ_A', name: 'Read test READ_A', attributes: [zeta, alpha] });
+    });
+
+    test('includeInactive=true also returns hidden attributes; false is the default', async () => {
+      const all = await api('GET', '/asset-types/READ_A?includeInactive=true');
+      assert.equal(all.status, 200);
+      assert.deepEqual(all.body.attributes, [zeta, hidden, alpha]);
+
+      const active = await api('GET', '/asset-types/READ_A?includeInactive=false');
+      assert.deepEqual(active.body.attributes, [zeta, alpha]);
+    });
+
+    test('returns an empty list for a type with no attributes', async () => {
+      const res = await api('GET', '/asset-types/READ_EMPTY');
+      assert.equal(res.status, 200);
+      assert.deepEqual(res.body, { code: 'READ_EMPTY', name: 'Read test READ_EMPTY', attributes: [] });
+    });
+
+    test('rejects includeInactive other than true or false', async () => {
+      for (const value of ['yes', '1', 'TRUE']) {
+        const res = await api('GET', '/asset-types/READ_A?includeInactive=' + value);
+        assert.equal(res.status, 422, value);
+        assert.equal(res.body.error.code, 'VALIDATION_FAILED');
+        assert.ok(res.body.error.fields.includeInactive, value);
+      }
+    });
+
+    test('404s for an unknown or inactive type code', async () => {
+      for (const code of ['NO_SUCH_TYPE', 'READ_RETIRED']) {
+        const res = await api('GET', '/asset-types/' + code);
+        assert.equal(res.status, 404, code);
+        assert.equal(res.body.error.code, 'NOT_FOUND');
+      }
+    });
+
+    test('GET /:code/attributes returns the same list', async () => {
+      assert.deepEqual((await api('GET', '/asset-types/READ_A/attributes')).body, [zeta, alpha]);
+      assert.deepEqual((await api('GET', '/asset-types/READ_A/attributes?includeInactive=true')).body, [zeta, hidden, alpha]);
+      assert.equal((await api('GET', '/asset-types/READ_A/attributes?includeInactive=yes')).status, 422);
+      assert.equal((await api('GET', '/asset-types/NO_SUCH_TYPE/attributes')).status, 404);
+    });
+  });
+
   test('unknown API routes answer in JSON', async () => {
     const res = await api('GET', '/nope');
     assert.equal(res.status, 404);

@@ -176,8 +176,42 @@ const spec = {
         },
       },
     },
+    '/asset-types/{code}': {
+      parameters: [{ $ref: '#/components/parameters/AssetTypeCode' }],
+      get: {
+        tags: ['Asset types'],
+        summary: 'Read an asset type with its custom attributes',
+        description: 'Attributes are in creation order. Inactive types are not found.',
+        parameters: [{ $ref: '#/components/parameters/IncludeInactive' }],
+        responses: {
+          200: {
+            description: 'The type',
+            content: json(ref('AssetTypeDetail'), {
+              code: 'LAPTOP',
+              name: 'Laptop',
+              attributes: [{ key: 'screen_size', label: 'Screen size', dataType: 'number', isRequired: true, isActive: true }],
+            }),
+          },
+          404: response('NotFound'),
+          422: response('ValidationFailed'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
     '/asset-types/{code}/attributes': {
       parameters: [{ $ref: '#/components/parameters/AssetTypeCode' }],
+      get: {
+        tags: ['Asset types'],
+        summary: "List an asset type's custom attributes",
+        description: 'The `attributes` of `GET /asset-types/{code}`, in creation order.',
+        parameters: [{ $ref: '#/components/parameters/IncludeInactive' }],
+        responses: {
+          200: { description: 'The attributes', content: json({ type: 'array', items: ref('Attribute') }) },
+          404: response('NotFound'),
+          422: response('ValidationFailed'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
       post: {
         tags: ['Asset types'],
         summary: 'Add a custom attribute to an asset type',
@@ -447,6 +481,12 @@ const spec = {
         description: 'Asset type code, case-insensitive',
         schema: code,
       },
+      IncludeInactive: {
+        name: 'includeInactive',
+        in: 'query',
+        description: 'Also return hidden attributes. Only `true` or `false`; any other value is a 422.',
+        schema: { type: 'boolean', default: false },
+      },
       ProfileId: { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
     },
     responses: {
@@ -552,6 +592,15 @@ const spec = {
           dataType: { type: 'string', enum: ATTRIBUTE_DATA_TYPES },
           isRequired: { type: 'boolean' },
           isActive: { type: 'boolean', description: 'False once hidden; a hidden attribute keeps its key' },
+        },
+      },
+      AssetTypeDetail: {
+        type: 'object',
+        required: ['code', 'name', 'attributes'],
+        properties: {
+          code: { type: 'string', examples: ['LAPTOP'] },
+          name: { type: 'string' },
+          attributes: { type: 'array', items: ref('Attribute') },
         },
       },
       ReferenceData: {
