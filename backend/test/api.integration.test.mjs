@@ -427,6 +427,80 @@ describe('asset management API', { skip: skip || false }, () => {
     });
   });
 
+  describe('US18-T3 create a custom attribute', () => {
+    const attribute = { key: 'screen_size', label: 'Screen size', dataType: 'number', isRequired: true };
+
+    before(async () => {
+      for (const code of ['ATTR_A', 'ATTR_B']) {
+        assert.equal((await api('POST', '/asset-types', { code, name: 'Attribute test ' + code })).status, 201);
+      }
+    });
+
+    test('creates an attribute on a type', async () => {
+      const res = await api('POST', '/asset-types/ATTR_A/attributes', attribute);
+      assert.equal(res.status, 201);
+      assert.deepEqual(res.body, { ...attribute, isActive: true });
+    });
+
+    test('trims key and label, and defaults isRequired to false', async () => {
+      const res = await api('POST', '/asset-types/attr_a/attributes', { key: ' serial_no ', label: ' Serial ', dataType: 'text' });
+      assert.equal(res.status, 201);
+      assert.deepEqual(res.body, { key: 'serial_no', label: 'Serial', dataType: 'text', isRequired: false, isActive: true });
+    });
+
+    test('rejects the same key twice on one type under fields.key', async () => {
+      const res = await api('POST', '/asset-types/ATTR_A/attributes', { ...attribute, label: 'Other' });
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error.code, 'DUPLICATE_KEY');
+      assert.match(res.body.error.fields.key, /hidden/);
+    });
+
+    test('allows the same key on two different types', async () => {
+      const res = await api('POST', '/asset-types/ATTR_B/attributes', attribute);
+      assert.equal(res.status, 201);
+    });
+
+    test('rejects a key that matches an inactive attribute', async () => {
+      assert.equal((await api('POST', '/asset-types/ATTR_A/attributes', { key: 'warranty', label: 'Warranty', dataType: 'date' })).status, 201);
+      await pool.query(
+        `UPDATE asset_type_attributes SET is_active = false
+         WHERE key = 'warranty' AND asset_type_id = (SELECT id FROM asset_types WHERE code = 'ATTR_A')`,
+      );
+
+      const res = await api('POST', '/asset-types/ATTR_A/attributes', { key: 'warranty', label: 'Warranty', dataType: 'date' });
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error.code, 'DUPLICATE_KEY');
+      assert.match(res.body.error.fields.key, /hidden/);
+    });
+
+    test('rejects a key outside ^[a-z][a-z0-9_]*$ or over 32 characters', async () => {
+      for (const key of ['Screen_size', '1st_owner', 'screen size', 'a'.repeat(33)]) {
+        const res = await api('POST', '/asset-types/ATTR_A/attributes', { ...attribute, key });
+        assert.equal(res.status, 422, key);
+        assert.equal(res.body.error.code, 'VALIDATION_FAILED');
+        assert.ok(res.body.error.fields.key, key);
+      }
+    });
+
+    test('rejects a blank label and an unknown data type', async () => {
+      const res = await api('POST', '/asset-types/ATTR_A/attributes', { key: 'colour', label: '   ', dataType: 'color' });
+      assert.equal(res.status, 422);
+      assert.equal(res.body.error.fields.label, 'Required');
+      assert.ok(res.body.error.fields.dataType);
+    });
+
+    test('404s for an unknown or inactive type code', async () => {
+      assert.equal((await api('POST', '/asset-types', { code: 'ATTR_RETIRED', name: 'Attribute test retired' })).status, 201);
+      await pool.query(`UPDATE asset_types SET is_active = false WHERE code = 'ATTR_RETIRED'`);
+
+      for (const code of ['NO_SUCH_TYPE', 'ATTR_RETIRED']) {
+        const res = await api('POST', `/asset-types/${code}/attributes`, attribute);
+        assert.equal(res.status, 404, code);
+        assert.equal(res.body.error.code, 'NOT_FOUND');
+      }
+    });
+  });
+
   test('unknown API routes answer in JSON', async () => {
     const res = await api('GET', '/nope');
     assert.equal(res.status, 404);

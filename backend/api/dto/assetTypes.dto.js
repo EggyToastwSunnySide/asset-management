@@ -6,6 +6,13 @@
 const { checkBody } = require('../validation');
 
 const ASSET_TYPE_FIELDS = ['code', 'name'];
+const ATTRIBUTE_FIELDS = ['key', 'label', 'dataType', 'isRequired'];
+
+/** Values of the schema's attribute_data_type enum (US18-T1). */
+const ATTRIBUTE_DATA_TYPES = ['text', 'number', 'date', 'boolean'];
+
+/** Same as the schema's ck_asset_type_attributes_key; not lower-cased for the user, so they see the real key. */
+const ATTRIBUTE_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
 
 /** POST /api/asset-types body. `code` is trimmed and upper-cased (Checker.code). */
 function parseCreateAssetType(body) {
@@ -16,8 +23,39 @@ function parseCreateAssetType(body) {
   });
 }
 
+/** POST /api/asset-types/:code/attributes body (US18-T3). */
+function parseCreateAttribute(body) {
+  const c = checkBody(body, ATTRIBUTE_FIELDS);
+  return c.done({
+    key: c.string('key', {
+      max: 32,
+      pattern: ATTRIBUTE_KEY_PATTERN,
+      patternMessage: 'Use lowercase letters, digits and _ only, starting with a letter',
+    }),
+    label: c.string('label', { max: 255 }),
+    dataType: c.oneOf('dataType', ATTRIBUTE_DATA_TYPES),
+    isRequired: c.has('isRequired') ? c.boolean('isRequired') : false,
+  });
+}
+
 function toAssetTypeDto(row) {
   return { code: row.code, name: row.name };
 }
 
-module.exports = { parseCreateAssetType, toAssetTypeDto };
+function toAttributeDto(row) {
+  return {
+    key: row.key,
+    label: row.label,
+    dataType: row.data_type,
+    isRequired: row.is_required,
+    isActive: row.is_active,
+  };
+}
+
+module.exports = {
+  ATTRIBUTE_DATA_TYPES,
+  parseCreateAssetType,
+  parseCreateAttribute,
+  toAssetTypeDto,
+  toAttributeDto,
+};

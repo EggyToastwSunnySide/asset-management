@@ -20,6 +20,7 @@ const {
   DATE_FORMATS,
   DEFAULT_DATE_FORMAT,
 } = require('./dto/exportParams.dto');
+const { ATTRIBUTE_DATA_TYPES } = require('./dto/assetTypes.dto');
 
 const ref = (name) => ({ $ref: `#/components/schemas/${name}` });
 const response = (name) => ({ $ref: `#/components/responses/${name}` });
@@ -167,6 +168,48 @@ const spec = {
                 code: 'DUPLICATE_CODE',
                 message: 'Asset type code "LAPTOP" is already in use.',
                 fields: { code: 'Asset type code "LAPTOP" is already in use.' },
+              },
+            }),
+          },
+          422: response('ValidationFailed'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
+    '/asset-types/{code}/attributes': {
+      parameters: [{ $ref: '#/components/parameters/AssetTypeCode' }],
+      post: {
+        tags: ['Asset types'],
+        summary: 'Add a custom attribute to an asset type',
+        description:
+          '`key` is trimmed, then must match `^[a-z][a-z0-9_]*$`; it is not lower-cased for you. Keys are unique per type and never reused, even after the attribute is hidden. Only active types take new attributes.',
+        requestBody: {
+          required: true,
+          content: json(ref('AttributeInput'), { key: 'screen_size', label: 'Screen size', dataType: 'number', isRequired: true }),
+        },
+        responses: {
+          201: {
+            description: 'Created',
+            content: json(ref('Attribute'), {
+              key: 'screen_size',
+              label: 'Screen size',
+              dataType: 'number',
+              isRequired: true,
+              isActive: true,
+            }),
+          },
+          400: response('BadRequest'),
+          404: response('NotFound'),
+          409: {
+            description: 'Key already used on this type, by an active or a hidden attribute (`DUPLICATE_KEY`, `fields.key`).',
+            content: json(ref('Error'), {
+              error: {
+                code: 'DUPLICATE_KEY',
+                message:
+                  'Attribute key "screen_size" is already used on this asset type, possibly by a hidden attribute. Keys cannot be reused.',
+                fields: {
+                  key: 'Attribute key "screen_size" is already used on this asset type, possibly by a hidden attribute. Keys cannot be reused.',
+                },
               },
             }),
           },
@@ -397,6 +440,13 @@ const spec = {
   components: {
     parameters: {
       AssetId: { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+      AssetTypeCode: {
+        name: 'code',
+        in: 'path',
+        required: true,
+        description: 'Asset type code, case-insensitive',
+        schema: code,
+      },
       ProfileId: { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
     },
     responses: {
@@ -438,7 +488,15 @@ const spec = {
             properties: {
               code: {
                 type: 'string',
-                examples: ['VALIDATION_FAILED', 'DUPLICATE_TAG', 'DUPLICATE_CODE', 'DUPLICATE_NAME', 'NOT_FOUND', 'DATABASE_UNAVAILABLE'],
+                examples: [
+                  'VALIDATION_FAILED',
+                  'DUPLICATE_TAG',
+                  'DUPLICATE_CODE',
+                  'DUPLICATE_NAME',
+                  'DUPLICATE_KEY',
+                  'NOT_FOUND',
+                  'DATABASE_UNAVAILABLE',
+                ],
               },
               message: { type: 'string' },
               fields: {
@@ -472,6 +530,28 @@ const spec = {
         properties: {
           code: { type: 'string', maxLength: 32, examples: ['TABLET'], description: 'Upper-cased by the server' },
           name: { type: 'string', maxLength: 255 },
+        },
+      },
+      AttributeInput: {
+        type: 'object',
+        required: ['key', 'label', 'dataType'],
+        additionalProperties: false,
+        properties: {
+          key: { type: 'string', maxLength: 32, pattern: '^[a-z][a-z0-9_]*$', examples: ['screen_size'] },
+          label: { type: 'string', maxLength: 255 },
+          dataType: { type: 'string', enum: ATTRIBUTE_DATA_TYPES },
+          isRequired: { type: 'boolean', default: false },
+        },
+      },
+      Attribute: {
+        type: 'object',
+        required: ['key', 'label', 'dataType', 'isRequired', 'isActive'],
+        properties: {
+          key: { type: 'string' },
+          label: { type: 'string' },
+          dataType: { type: 'string', enum: ATTRIBUTE_DATA_TYPES },
+          isRequired: { type: 'boolean' },
+          isActive: { type: 'boolean', description: 'False once hidden; a hidden attribute keeps its key' },
         },
       },
       ReferenceData: {
