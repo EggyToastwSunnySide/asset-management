@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const vm = require('node:vm');
 const { ROUTES } = require('../api');
 const spec = require('../api/openapi');
 
@@ -55,8 +56,11 @@ test('serves the document and Swagger UI', async () => {
     assert.equal(ui.status, 200);
     assert.match(await ui.text(), /swagger-ui/);
 
+    // Swagger UI renders a blank page if this script does not compile.
     const init = await fetch(base + '/docs/swagger-ui-init.js');
     assert.equal(init.status, 200);
+    const initJs = await init.text();
+    assert.doesNotThrow(() => new vm.Script(initJs), 'swagger-ui-init.js does not compile');
   } finally {
     await new Promise((resolve) => server.close(resolve));
     http.globalAgent.destroy();
