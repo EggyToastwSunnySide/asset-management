@@ -629,6 +629,50 @@ describe('asset management API', { skip: skip || false }, () => {
     });
   });
 
+  // US17-T7 fills the acceptance-criteria gap. The rest is covered elsewhere:
+  // AC1 "creates a type that then appears in reference data" and US17-T6 "creates
+  // an asset with a type made through POST /asset-types"; AC3 "rejects a duplicate
+  // name case-insensitively under fields.name"; AC4 US18-T3 "creates an attribute
+  // on a type" and US17-T5 "returns the type with its active attributes in creation
+  // order"; AC5 US17-T6 "filters the list by the new type, and excludes it with
+  // typeNot" and "exports show the new type's name".
+  describe('US17-T7 a new type keeps every common field (AC2)', () => {
+    const input = {
+      tag: 'T7-001',
+      name: 'Every common field',
+      type: 'T7_GAMMA',
+      status: 'RETIRED',
+      location: 'WAREHOUSE',
+      purchaseDate: '2023-07-31',
+      notes: 'Bought for the T7 test',
+    };
+
+    before(async () => {
+      assert.equal((await api('POST', '/asset-types', { code: 'T7_GAMMA', name: 'T7 Gamma type' })).status, 201);
+      const attribute = { key: 'serial_no', label: 'Serial number', dataType: 'text' };
+      assert.equal((await api('POST', '/asset-types/T7_GAMMA/attributes', attribute)).status, 201);
+    });
+
+    test('an asset of the new type stores and returns every common field', async () => {
+      const created = await api('POST', '/assets', input);
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+
+      const read = await api('GET', '/assets/' + created.body.id);
+      const listed = await api('GET', '/assets?type=T7_GAMMA');
+      assert.equal(listed.body.total, 1);
+
+      for (const body of [created.body, read.body, listed.body.items[0]]) {
+        assert.deepEqual(
+          { tag: body.tag, name: body.name, type: body.type, status: body.status, location: body.location, purchaseDate: body.purchaseDate, notes: body.notes },
+          input,
+        );
+        assert.equal(body.typeName, 'T7 Gamma type');
+        assert.ok(body.statusName);
+        assert.ok(body.locationName);
+      }
+    });
+  });
+
   describe('US18-T4 edit, hide and restore a custom attribute', () => {
     const base = '/asset-types/EDIT_A/attributes';
 
