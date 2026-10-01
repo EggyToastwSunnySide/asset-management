@@ -11,7 +11,8 @@ const router = express.Router();
  * frontend/src/features/asset-types/api/assetTypes.api.ts:
  *
  *   POST /api/asset-types  { code, name } -> 201 { code, name }
- *                          | 409 DUPLICATE_CODE (fields.code) | 422 VALIDATION_FAILED
+ *                          | 409 DUPLICATE_CODE (fields.code) | 409 DUPLICATE_NAME (fields.name)
+ *                          | 422 VALIDATION_FAILED
  *
  * Listing stays in GET /api/reference-data (`types`).
  */

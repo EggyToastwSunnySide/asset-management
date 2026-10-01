@@ -214,6 +214,10 @@ ALTER TABLE export_profile_columns
   ADD CONSTRAINT fk_export_profile_columns_profile
     FOREIGN KEY (profile_id) REFERENCES export_profiles(id) ON DELETE CASCADE;
 
+-- lower() rather than citext: needs a UTF8 database so Vietnamese letters fold too.
+CREATE UNIQUE INDEX uq_asset_types_name_ci
+  ON asset_types (lower(name));
+
 CREATE INDEX idx_assets_active_filters
   ON assets (asset_type_id, asset_status_id, location_id)
   WHERE deleted_at IS NULL;

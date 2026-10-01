@@ -3,7 +3,7 @@ import { apiClient } from '@/lib/apiClient'
 import { assetKeys, type ReferenceItem } from '@/features/assets'
 
 // Backend call: POST /api/asset-types (backend/api/routes/assetTypes.js).
-// A 409 DUPLICATE_CODE or 422 arrives with `fields.code` / `fields.name`.
+// A 409 DUPLICATE_CODE / DUPLICATE_NAME or 422 arrives with `fields.code` / `fields.name`.
 
 /** Body of `POST /api/asset-types` — mirrors `asset_types.code` / `.name`. */
 export interface AssetTypeInput {

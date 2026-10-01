@@ -9,12 +9,11 @@ const { ApiError } = require('../api/errors');
 /*
  * Unique constraint -> the input field it guards. The UNIQUE constraints are
  * the real check (a read-then-insert would race); this only words the 409.
- * `asset_types_name_key` is the default name of the case-insensitive
- * `name citext UNIQUE` planned for US17-T4; it never fires until that lands.
+ * Names are unique case-insensitively via the index on lower(name).
  */
 const UNIQUE_FIELDS = {
   asset_types_code_key: 'code',
-  asset_types_name_key: 'name',
+  uq_asset_types_name_ci: 'name',
 };
 
 const DUPLICATES = {

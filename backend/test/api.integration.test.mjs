@@ -392,10 +392,31 @@ describe('asset management API', { skip: skip || false }, () => {
       assert.ok(res.body.error.fields.code);
     });
 
-    test('rejects a blank name', async () => {
-      const res = await api('POST', '/asset-types', { code: 'BLANK', name: '   ' });
-      assert.equal(res.status, 422);
+    test('rejects a duplicate name case-insensitively under fields.name', async () => {
+      assert.equal((await api('POST', '/asset-types', { code: 'PROJECTOR', name: 'Projector' })).status, 201);
+
+      for (const name of ['projector', 'PROJECTOR', '  Projector  ']) {
+        const res = await api('POST', '/asset-types', { code: 'PROJECTOR_2', name });
+        assert.equal(res.status, 409, name);
+        assert.equal(res.body.error.code, 'DUPLICATE_NAME');
+        assert.match(res.body.error.fields.name, /already exists/);
+        assert.equal(res.body.error.fields.code, undefined);
+      }
+    });
+
+    test('rejects a seeded Vietnamese name in a different case', async () => {
+      const res = await api('POST', '/asset-types', { code: 'DESKTOP_2', name: 'MÁY TÍNH ĐỂ BÀN' });
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error.code, 'DUPLICATE_NAME');
       assert.ok(res.body.error.fields.name);
+    });
+
+    test('rejects a missing, empty or whitespace-only name', async () => {
+      for (const name of [undefined, '', '   ', '\t\n ']) {
+        const res = await api('POST', '/asset-types', { code: 'BLANK', name });
+        assert.equal(res.status, 422, JSON.stringify(name));
+        assert.equal(res.body.error.fields.name, 'Required');
+      }
     });
 
     test('rejects a code over 32 and a name over 255 characters', async () => {

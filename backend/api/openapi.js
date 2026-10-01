@@ -160,7 +160,8 @@ const spec = {
           201: { description: 'Created', content: json(ref('ReferenceItem'), { code: 'TABLET', name: 'Máy tính bảng' }) },
           400: response('BadRequest'),
           409: {
-            description: 'Code already in use (`DUPLICATE_CODE`, `fields.code`).',
+            description:
+              'Code already in use (`DUPLICATE_CODE`, `fields.code`), or name already in use ignoring case and surrounding spaces (`DUPLICATE_NAME`, `fields.name`).',
             content: json(ref('Error'), {
               error: {
                 code: 'DUPLICATE_CODE',
