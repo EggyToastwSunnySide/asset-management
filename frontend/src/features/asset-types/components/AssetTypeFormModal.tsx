@@ -52,7 +52,7 @@ export function AssetTypeFormModal({ open, onClose }: AssetTypeFormModalProps) {
 
   function handleError(err: Error) {
     // `fields.code` / `fields.name` go under their input; any other field,
-    // or an error with no fields at all (e.g. 404 until US17-T3), goes on top.
+    // or an error with no fields at all (e.g. 503 DATABASE_UNAVAILABLE), goes on top.
     const { code, name, ...otherFields } = err instanceof ApiError ? (err.fields ?? {}) : {}
     setFieldErrors({ code, name })
 

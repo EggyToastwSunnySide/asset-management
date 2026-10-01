@@ -2,8 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/lib/apiClient'
 import { assetKeys, type ReferenceItem } from '@/features/assets'
 
-// Backend call. The endpoint lands with US17-T3; until then it answers 404
-// NOT_FOUND, which the form shows as a form-level error.
+// Backend call: POST /api/asset-types (backend/api/routes/assetTypes.js).
+// A 409 DUPLICATE_CODE or 422 arrives with `fields.code` / `fields.name`.
 
 /** Body of `POST /api/asset-types` — mirrors `asset_types.code` / `.name`. */
 export interface AssetTypeInput {

@@ -118,6 +118,7 @@ const spec = {
   servers: [{ url: '/api' }],
   tags: [
     { name: 'System', description: 'Health and reference data' },
+    { name: 'Asset types', description: 'US17 create asset types' },
     { name: 'Assets', description: 'S-01 create/read/update/delete, S-02 browse' },
     { name: 'Exports', description: 'S-03 Excel export' },
     { name: 'Export profiles', description: 'S-04 saved export settings' },
@@ -141,6 +142,34 @@ const spec = {
         description: 'Active reference rows, for form pickers and filters.',
         responses: {
           200: { description: 'Reference data', content: json(ref('ReferenceData')) },
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
+    '/asset-types': {
+      post: {
+        tags: ['Asset types'],
+        summary: 'Create an asset type',
+        description:
+          '`code` is trimmed and upper-cased, then must match `^[A-Z0-9_-]+$`. The new type is listed by `GET /reference-data`.',
+        requestBody: {
+          required: true,
+          content: json(ref('AssetTypeInput'), { code: 'TABLET', name: 'Máy tính bảng' }),
+        },
+        responses: {
+          201: { description: 'Created', content: json(ref('ReferenceItem'), { code: 'TABLET', name: 'Máy tính bảng' }) },
+          400: response('BadRequest'),
+          409: {
+            description: 'Code already in use (`DUPLICATE_CODE`, `fields.code`).',
+            content: json(ref('Error'), {
+              error: {
+                code: 'DUPLICATE_CODE',
+                message: 'Asset type code "LAPTOP" is already in use.',
+                fields: { code: 'Asset type code "LAPTOP" is already in use.' },
+              },
+            }),
+          },
+          422: response('ValidationFailed'),
           503: response('DatabaseUnavailable'),
         },
       },
@@ -408,7 +437,7 @@ const spec = {
             properties: {
               code: {
                 type: 'string',
-                examples: ['VALIDATION_FAILED', 'DUPLICATE_TAG', 'DUPLICATE_NAME', 'NOT_FOUND', 'DATABASE_UNAVAILABLE'],
+                examples: ['VALIDATION_FAILED', 'DUPLICATE_TAG', 'DUPLICATE_CODE', 'DUPLICATE_NAME', 'NOT_FOUND', 'DATABASE_UNAVAILABLE'],
               },
               message: { type: 'string' },
               fields: {
@@ -434,6 +463,15 @@ const spec = {
         type: 'object',
         required: ['code', 'name'],
         properties: { code: { type: 'string', examples: ['LAPTOP'] }, name: { type: 'string' } },
+      },
+      AssetTypeInput: {
+        type: 'object',
+        required: ['code', 'name'],
+        additionalProperties: false,
+        properties: {
+          code: { type: 'string', maxLength: 32, examples: ['TABLET'], description: 'Upper-cased by the server' },
+          name: { type: 'string', maxLength: 255 },
+        },
       },
       ReferenceData: {
         type: 'object',

@@ -10,6 +10,7 @@ const router = express.Router();
 const ROUTES = [
   ['/health', require('./routes/health')],
   ['/reference-data', require('./routes/referenceData')],
+  ['/asset-types', require('./routes/assetTypes')],
   ['/assets', require('./routes/assets')],
   ['/export-profiles', require('./routes/exportProfiles')],
   ['/exports', require('./routes/exports')],
