@@ -567,7 +567,7 @@ describe('asset management API', { skip: skip || false }, () => {
     });
   });
 
-  describe('US17-T6 assets can use a new type', () => {
+  describe('US17-T6 assets can use a specialized asset type', () => {
     let created;
 
     // Extended attributes arrive with US18-T6; until then no asset response carries them.
@@ -576,9 +576,14 @@ describe('asset management API', { skip: skip || false }, () => {
       assert.equal('extended_attributes' in body, false);
     }
 
+    // A type is specialized once it has custom attributes (US17-T1). The attribute is
+    // optional, so saving an asset without a value stays valid once US18-T5 enforces
+    // required ones.
     before(async () => {
+      const attribute = { key: 'serial_no', label: 'Serial number', dataType: 'text' };
       for (const [code, name] of [['T6_ALPHA', 'T6 Alpha type'], ['T6_BETA', 'T6 Beta type']]) {
         assert.equal((await api('POST', '/asset-types', { code, name })).status, 201);
+        assert.equal((await api('POST', `/asset-types/${code}/attributes`, attribute)).status, 201);
       }
     });
 
