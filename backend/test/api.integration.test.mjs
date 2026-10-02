@@ -43,6 +43,16 @@ function asset(tag, overrides = {}) {
   };
 }
 
+async function exportSheet(body) {
+  const res = await api('POST', '/exports/assets', body);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.match(res.headers.get('content-type'), /spreadsheetml/);
+  assert.match(res.headers.get('content-disposition'), /attachment; filename="inventory-export-\d{4}-\d{2}-\d{2}\.xlsx"/);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(res.body);
+  return { sheet: workbook.getWorksheet('Assets'), rowCount: Number(res.headers.get('x-export-row-count')) };
+}
+
 describe('asset management API', { skip: skip || false }, () => {
   before(async () => {
     const app = require('../app');
@@ -239,16 +249,6 @@ describe('asset management API', { skip: skip || false }, () => {
   });
 
   describe('S-03 / S-04 export', () => {
-    async function exportSheet(body) {
-      const res = await api('POST', '/exports/assets', body);
-      assert.equal(res.status, 200, JSON.stringify(res.body));
-      assert.match(res.headers.get('content-type'), /spreadsheetml/);
-      assert.match(res.headers.get('content-disposition'), /attachment; filename="inventory-export-\d{4}-\d{2}-\d{2}\.xlsx"/);
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(res.body);
-      return { sheet: workbook.getWorksheet('Assets'), rowCount: Number(res.headers.get('x-export-row-count')) };
-    }
-
     test('exports every filtered row across pages, in list order, with dates as dates', async () => {
       const { sheet, rowCount } = await exportSheet({
         filters: { search: 'S02-', type: ['PRINTER'], locationNot: 'OFFICE' },
@@ -424,6 +424,208 @@ describe('asset management API', { skip: skip || false }, () => {
       assert.equal(res.status, 422);
       assert.match(res.body.error.fields.code, /32/);
       assert.match(res.body.error.fields.name, /255/);
+    });
+  });
+
+  describe('US18-T3 create a custom attribute', () => {
+    const attribute = { key: 'screen_size', label: 'Screen size', dataType: 'number', isRequired: true };
+
+    before(async () => {
+      for (const code of ['ATTR_A', 'ATTR_B']) {
+        assert.equal((await api('POST', '/asset-types', { code, name: 'Attribute test ' + code })).status, 201);
+      }
+    });
+
+    test('creates an attribute on a type', async () => {
+      const res = await api('POST', '/asset-types/ATTR_A/attributes', attribute);
+      assert.equal(res.status, 201);
+      assert.deepEqual(res.body, { ...attribute, isActive: true });
+    });
+
+    test('trims key and label, and defaults isRequired to false', async () => {
+      const res = await api('POST', '/asset-types/attr_a/attributes', { key: ' serial_no ', label: ' Serial ', dataType: 'text' });
+      assert.equal(res.status, 201);
+      assert.deepEqual(res.body, { key: 'serial_no', label: 'Serial', dataType: 'text', isRequired: false, isActive: true });
+    });
+
+    test('rejects the same key twice on one type under fields.key', async () => {
+      const res = await api('POST', '/asset-types/ATTR_A/attributes', { ...attribute, label: 'Other' });
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error.code, 'DUPLICATE_KEY');
+      assert.match(res.body.error.fields.key, /hidden/);
+    });
+
+    test('allows the same key on two different types', async () => {
+      const res = await api('POST', '/asset-types/ATTR_B/attributes', attribute);
+      assert.equal(res.status, 201);
+    });
+
+    test('rejects a key that matches an inactive attribute', async () => {
+      assert.equal((await api('POST', '/asset-types/ATTR_A/attributes', { key: 'warranty', label: 'Warranty', dataType: 'date' })).status, 201);
+      await pool.query(
+        `UPDATE asset_type_attributes SET is_active = false
+         WHERE key = 'warranty' AND asset_type_id = (SELECT id FROM asset_types WHERE code = 'ATTR_A')`,
+      );
+
+      const res = await api('POST', '/asset-types/ATTR_A/attributes', { key: 'warranty', label: 'Warranty', dataType: 'date' });
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error.code, 'DUPLICATE_KEY');
+      assert.match(res.body.error.fields.key, /hidden/);
+    });
+
+    test('rejects a key outside ^[a-z][a-z0-9_]*$ or over 32 characters', async () => {
+      for (const key of ['Screen_size', '1st_owner', 'screen size', 'a'.repeat(33)]) {
+        const res = await api('POST', '/asset-types/ATTR_A/attributes', { ...attribute, key });
+        assert.equal(res.status, 422, key);
+        assert.equal(res.body.error.code, 'VALIDATION_FAILED');
+        assert.ok(res.body.error.fields.key, key);
+      }
+    });
+
+    test('rejects a blank label and an unknown data type', async () => {
+      const res = await api('POST', '/asset-types/ATTR_A/attributes', { key: 'colour', label: '   ', dataType: 'color' });
+      assert.equal(res.status, 422);
+      assert.equal(res.body.error.fields.label, 'Required');
+      assert.ok(res.body.error.fields.dataType);
+    });
+
+    test('404s for an unknown or inactive type code', async () => {
+      assert.equal((await api('POST', '/asset-types', { code: 'ATTR_RETIRED', name: 'Attribute test retired' })).status, 201);
+      await pool.query(`UPDATE asset_types SET is_active = false WHERE code = 'ATTR_RETIRED'`);
+
+      for (const code of ['NO_SUCH_TYPE', 'ATTR_RETIRED']) {
+        const res = await api('POST', `/asset-types/${code}/attributes`, attribute);
+        assert.equal(res.status, 404, code);
+        assert.equal(res.body.error.code, 'NOT_FOUND');
+      }
+    });
+  });
+
+  describe('US17-T5 read a type with its attribute config', () => {
+    const zeta = { key: 'zeta', label: 'Zeta', dataType: 'text', isRequired: false, isActive: true };
+    const hidden = { key: 'hidden_one', label: 'Hidden', dataType: 'boolean', isRequired: false, isActive: false };
+    const alpha = { key: 'alpha', label: 'Alpha', dataType: 'number', isRequired: true, isActive: true };
+
+    before(async () => {
+      for (const code of ['READ_A', 'READ_EMPTY', 'READ_RETIRED']) {
+        assert.equal((await api('POST', '/asset-types', { code, name: 'Read test ' + code })).status, 201);
+      }
+      // Created out of key order, so the response order can only come from created_at.
+      for (const { isActive, ...input } of [zeta, hidden, alpha]) {
+        assert.equal((await api('POST', '/asset-types/READ_A/attributes', input)).status, 201);
+      }
+      await pool.query(
+        `UPDATE asset_type_attributes SET is_active = false
+         WHERE key = 'hidden_one' AND asset_type_id = (SELECT id FROM asset_types WHERE code = 'READ_A')`,
+      );
+      await pool.query(`UPDATE asset_types SET is_active = false WHERE code = 'READ_RETIRED'`);
+    });
+
+    test('returns the type with its active attributes in creation order', async () => {
+      const res = await api('GET', '/asset-types/read_a');
+      assert.equal(res.status, 200);
+      assert.deepEqual(res.body, { code: 'READ_A', name: 'Read test READ_A', attributes: [zeta, alpha] });
+    });
+
+    test('includeInactive=true also returns hidden attributes; false is the default', async () => {
+      const all = await api('GET', '/asset-types/READ_A?includeInactive=true');
+      assert.equal(all.status, 200);
+      assert.deepEqual(all.body.attributes, [zeta, hidden, alpha]);
+
+      const active = await api('GET', '/asset-types/READ_A?includeInactive=false');
+      assert.deepEqual(active.body.attributes, [zeta, alpha]);
+    });
+
+    test('returns an empty list for a type with no attributes', async () => {
+      const res = await api('GET', '/asset-types/READ_EMPTY');
+      assert.equal(res.status, 200);
+      assert.deepEqual(res.body, { code: 'READ_EMPTY', name: 'Read test READ_EMPTY', attributes: [] });
+    });
+
+    test('rejects includeInactive other than true or false', async () => {
+      for (const value of ['yes', '1', 'TRUE']) {
+        const res = await api('GET', '/asset-types/READ_A?includeInactive=' + value);
+        assert.equal(res.status, 422, value);
+        assert.equal(res.body.error.code, 'VALIDATION_FAILED');
+        assert.ok(res.body.error.fields.includeInactive, value);
+      }
+    });
+
+    test('404s for an unknown or inactive type code', async () => {
+      for (const code of ['NO_SUCH_TYPE', 'READ_RETIRED']) {
+        const res = await api('GET', '/asset-types/' + code);
+        assert.equal(res.status, 404, code);
+        assert.equal(res.body.error.code, 'NOT_FOUND');
+      }
+    });
+
+    test('GET /:code/attributes returns the same list', async () => {
+      assert.deepEqual((await api('GET', '/asset-types/READ_A/attributes')).body, [zeta, alpha]);
+      assert.deepEqual((await api('GET', '/asset-types/READ_A/attributes?includeInactive=true')).body, [zeta, hidden, alpha]);
+      assert.equal((await api('GET', '/asset-types/READ_A/attributes?includeInactive=yes')).status, 422);
+      assert.equal((await api('GET', '/asset-types/NO_SUCH_TYPE/attributes')).status, 404);
+    });
+  });
+
+  describe('US17-T6 assets can use a specialized asset type', () => {
+    let created;
+
+    // Extended attributes arrive with US18-T6; until then no asset response carries them.
+    function assertNoExtendedAttributes(body) {
+      assert.equal('extendedAttributes' in body, false);
+      assert.equal('extended_attributes' in body, false);
+    }
+
+    // A type is specialized once it has custom attributes (US17-T1). The attribute is
+    // optional, so saving an asset without a value stays valid once US18-T5 enforces
+    // required ones.
+    before(async () => {
+      const attribute = { key: 'serial_no', label: 'Serial number', dataType: 'text' };
+      for (const [code, name] of [['T6_ALPHA', 'T6 Alpha type'], ['T6_BETA', 'T6 Beta type']]) {
+        assert.equal((await api('POST', '/asset-types', { code, name })).status, 201);
+        assert.equal((await api('POST', `/asset-types/${code}/attributes`, attribute)).status, 201);
+      }
+    });
+
+    test('creates an asset with a type made through POST /asset-types', async () => {
+      const res = await api('POST', '/assets', asset('T6-001', { type: 'T6_ALPHA' }));
+      assert.equal(res.status, 201, JSON.stringify(res.body));
+      created = res.body;
+      assert.deepEqual([created.type, created.typeName], ['T6_ALPHA', 'T6 Alpha type']);
+      assertNoExtendedAttributes(created);
+
+      const read = await api('GET', '/assets/' + created.id);
+      assert.equal(read.status, 200);
+      assert.deepEqual([read.body.type, read.body.typeName], ['T6_ALPHA', 'T6 Alpha type']);
+      assertNoExtendedAttributes(read.body);
+    });
+
+    test('switches the asset to another new type', async () => {
+      const res = await api('PUT', '/assets/' + created.id, asset('T6-001', { type: 'T6_BETA' }));
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.deepEqual([res.body.type, res.body.typeName], ['T6_BETA', 'T6 Beta type']);
+      assertNoExtendedAttributes(res.body);
+    });
+
+    test('filters the list by the new type, and excludes it with typeNot', async () => {
+      assert.equal((await api('POST', '/assets', asset('T6-002', { type: 'T6_ALPHA' }))).status, 201);
+
+      const only = await api('GET', '/assets?type=T6_BETA');
+      assert.deepEqual(only.body.items.map((a) => a.tag), ['T6-001']);
+      only.body.items.forEach(assertNoExtendedAttributes);
+
+      const excluded = await api('GET', '/assets?search=T6-&typeNot=T6_BETA');
+      assert.deepEqual(excluded.body.items.map((a) => a.tag), ['T6-002']);
+    });
+
+    test("exports show the new type's name", async () => {
+      const { sheet, rowCount } = await exportSheet({ filters: { search: 'T6-' } });
+      assert.equal(rowCount, 2);
+      assert.equal(sheet.getCell('C1').value, 'Type');
+      assert.deepEqual(
+        [sheet.getCell('A2').value, sheet.getCell('C2').value, sheet.getCell('A3').value, sheet.getCell('C3').value],
+        ['T6-001', 'T6 Beta type', 'T6-002', 'T6 Alpha type'],
+      );
     });
   });
 

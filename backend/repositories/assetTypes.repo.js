@@ -14,11 +14,16 @@ const { ApiError } = require('../api/errors');
 const UNIQUE_FIELDS = {
   asset_types_code_key: 'code',
   uq_asset_types_name_ci: 'name',
+  uq_asset_type_attributes_key: 'key',
 };
 
 const DUPLICATES = {
   code: (input) => ['DUPLICATE_CODE', `Asset type code "${input.code}" is already in use.`],
   name: (input) => ['DUPLICATE_NAME', `An asset type named "${input.name}" already exists.`],
+  key: (input) => [
+    'DUPLICATE_KEY',
+    `Attribute key "${input.key}" is already used on this asset type, possibly by a hidden attribute. Keys cannot be reused.`,
+  ],
 };
 
 function translateDuplicate(err, input) {
@@ -40,4 +45,51 @@ async function createAssetType(input) {
   }
 }
 
-module.exports = { createAssetType };
+function assetTypeNotFound() {
+  return new ApiError(404, 'NOT_FOUND', 'Asset type not found');
+}
+
+const ATTRIBUTE_COLUMNS = 'key, label, data_type, is_required, is_active';
+
+/**
+ * Adds a custom attribute (US18-T3) to the active type `typeCode`. The type is
+ * resolved inside the INSERT, so an unknown or inactive code inserts nothing:
+ * like resolveAssetCodes, a retired type cannot take new configuration.
+ */
+async function createAttribute(typeCode, input) {
+  let rows;
+  try {
+    ({ rows } = await db.query(
+      `INSERT INTO asset_type_attributes (asset_type_id, key, label, data_type, is_required)
+       SELECT id, $2, $3, $4, $5 FROM asset_types WHERE code = $1 AND is_active
+       RETURNING ${ATTRIBUTE_COLUMNS}`,
+      [typeCode, input.key, input.label, input.dataType, input.isRequired],
+    ));
+  } catch (err) {
+    throw translateDuplicate(err, input);
+  }
+  if (!rows[0]) throw assetTypeNotFound();
+  return rows[0];
+}
+
+/**
+ * The active type `typeCode` with its attributes in creation order (US17-T5):
+ * `{ code, name, attributes }`. Hidden attributes only with `includeInactive`.
+ */
+async function getAssetTypeWithAttributes(typeCode, { includeInactive }) {
+  const { rows: types } = await db.query(
+    'SELECT id, code, name FROM asset_types WHERE code = $1 AND is_active',
+    [typeCode],
+  );
+  const type = types[0];
+  if (!type) throw assetTypeNotFound();
+  const { rows: attributes } = await db.query(
+    `SELECT ${ATTRIBUTE_COLUMNS} FROM asset_type_attributes
+     WHERE asset_type_id = $1 AND (is_active OR $2)
+     ORDER BY created_at, key`,
+    [type.id, includeInactive],
+  );
+  return { code: type.code, name: type.name, attributes };
+}
+
+module.exports = { createAssetType, createAttribute, getAssetTypeWithAttributes };
