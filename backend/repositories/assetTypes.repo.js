@@ -92,4 +92,70 @@ async function getAssetTypeWithAttributes(typeCode, { includeInactive }) {
   return { code: type.code, name: type.name, attributes };
 }
 
-module.exports = { createAssetType, createAttribute, getAssetTypeWithAttributes };
+function attributeNotFound() {
+  return new ApiError(404, 'NOT_FOUND', 'Attribute not found');
+}
+
+/** Picks attribute `$2` of the active type `$1`; an inactive type's attributes are not found. */
+const ATTRIBUTE_OF_ACTIVE_TYPE = 'asset_type_id = (SELECT id FROM asset_types WHERE code = $1 AND is_active) AND key = $2';
+
+/**
+ * Replaces label, data type and required flag (US18-T4); hidden attributes too.
+ * The data type is locked once any asset of the type holds a value for the key,
+ * soft-deleted assets included, since a restore would bring the value back.
+ */
+async function updateAttribute(typeCode, key, input) {
+  return db.withTransaction(async (client) => {
+    // FOR UPDATE only serializes against other attribute edits. Once asset saves
+    // write values (US18-T6), they should lock these rows FOR SHARE so a value
+    // cannot land between the count below and the data type change.
+    const { rows } = await client.query(
+      `SELECT id, asset_type_id, data_type FROM asset_type_attributes WHERE ${ATTRIBUTE_OF_ACTIVE_TYPE} FOR UPDATE`,
+      [typeCode, key],
+    );
+    const current = rows[0];
+    if (!current) throw attributeNotFound();
+
+    if (input.dataType !== current.data_type) {
+      const { rows: counts } = await client.query(
+        'SELECT count(*)::int AS n FROM assets WHERE asset_type_id = $1 AND extended_attributes ? $2',
+        [current.asset_type_id, key],
+      );
+      const { n } = counts[0];
+      if (n > 0) {
+        const [noun, verb] = n === 1 ? ['asset', 'holds'] : ['assets', 'hold'];
+        const message = `The data type cannot be changed: ${n} ${noun} of this type, deleted ones included, already ${verb} a value for "${key}".`;
+        throw new ApiError(409, 'DATA_TYPE_LOCKED', message, { dataType: message });
+      }
+    }
+
+    const { rows: updated } = await client.query(
+      `UPDATE asset_type_attributes SET label = $2, data_type = $3, is_required = $4
+       WHERE id = $1 RETURNING ${ATTRIBUTE_COLUMNS}`,
+      [current.id, input.label, input.dataType, input.isRequired],
+    );
+    return updated[0];
+  });
+}
+
+/**
+ * Hides (`false`) or restores (`true`) an attribute (US18-T4). Never deletes the
+ * row or touches assets.extended_attributes, so values survive a hide. Repeating
+ * either is harmless.
+ */
+async function setAttributeActive(typeCode, key, isActive) {
+  const { rows } = await db.query(
+    `UPDATE asset_type_attributes SET is_active = $3 WHERE ${ATTRIBUTE_OF_ACTIVE_TYPE} RETURNING ${ATTRIBUTE_COLUMNS}`,
+    [typeCode, key, isActive],
+  );
+  if (!rows[0]) throw attributeNotFound();
+  return rows[0];
+}
+
+module.exports = {
+  createAssetType,
+  createAttribute,
+  getAssetTypeWithAttributes,
+  updateAttribute,
+  setAttributeActive,
+};

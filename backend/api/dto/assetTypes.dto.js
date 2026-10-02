@@ -39,6 +39,21 @@ function parseCreateAttribute(body) {
 }
 
 /**
+ * PUT /api/asset-types/:code/attributes/:key body (US18-T4): a full replace, so
+ * every field is required. The key is immutable (schema trigger); it may be sent
+ * back unchanged, like an asset's tag, but a different value is a 422.
+ */
+function parseUpdateAttribute(body, key) {
+  const c = checkBody(body, ATTRIBUTE_FIELDS);
+  if (c.has('key') && body.key !== key) c.fail('key', 'The attribute key cannot be changed once created');
+  return c.done({
+    label: c.string('label', { max: 255 }),
+    dataType: c.oneOf('dataType', ATTRIBUTE_DATA_TYPES),
+    isRequired: c.boolean('isRequired'),
+  });
+}
+
+/**
  * GET /api/asset-types/:code (and /attributes) query (US17-T5). Only `true` or
  * `false`: a typo such as `yes` is a 422 rather than silently hiding attributes.
  */
@@ -66,6 +81,7 @@ module.exports = {
   ATTRIBUTE_DATA_TYPES,
   parseCreateAssetType,
   parseCreateAttribute,
+  parseUpdateAttribute,
   parseAttributeQuery,
   toAssetTypeDto,
   toAttributeDto,

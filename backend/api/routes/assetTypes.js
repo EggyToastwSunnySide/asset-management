@@ -4,6 +4,7 @@ const { currentUser } = require('../middleware/currentUser');
 const {
   parseCreateAssetType,
   parseCreateAttribute,
+  parseUpdateAttribute,
   parseAttributeQuery,
   toAssetTypeDto,
   toAttributeDto,
@@ -31,7 +32,18 @@ const router = express.Router();
  *                          -> 200 Attribute[]
  *                          | 404 NOT_FOUND (unknown or inactive type)
  *                          | 422 VALIDATION_FAILED (includeInactive is neither true nor false)
+ *   PUT    /api/asset-types/:code/attributes/:key
+ *                          { label, dataType, isRequired, key? } (full replace; hidden attributes too)
+ *                          -> 200 Attribute
+ *                          | 404 NOT_FOUND (unknown or inactive type, unknown key)
+ *                          | 409 DATA_TYPE_LOCKED (fields.dataType: assets of the type, deleted
+ *                            included, hold a value for the key)
+ *                          | 422 VALIDATION_FAILED (fields.key when it differs from :key)
+ *   DELETE /api/asset-types/:code/attributes/:key          -> 204, hides it (is_active = false)
+ *   POST   /api/asset-types/:code/attributes/:key/restore  -> 200 Attribute, shows it again
+ *                          Both keep the row and every asset value; repeating either is harmless.
  *
+ * `:key` is matched exactly (keys are lower-case).
  * `:code` is case-insensitive, like codes in bodies and filters.
  * Listing stays in GET /api/reference-data (`types`).
  */
@@ -53,6 +65,31 @@ router.post(
     const input = parseCreateAttribute(req.body);
     const attribute = await assetTypes.createAttribute(req.params.code.toUpperCase(), input);
     res.status(201).json(toAttributeDto(attribute));
+  }),
+);
+
+router.put(
+  '/:code/attributes/:key',
+  asyncHandler(async (req, res) => {
+    const input = parseUpdateAttribute(req.body, req.params.key);
+    const attribute = await assetTypes.updateAttribute(req.params.code.toUpperCase(), req.params.key, input);
+    res.json(toAttributeDto(attribute));
+  }),
+);
+
+router.delete(
+  '/:code/attributes/:key',
+  asyncHandler(async (req, res) => {
+    await assetTypes.setAttributeActive(req.params.code.toUpperCase(), req.params.key, false);
+    res.status(204).end();
+  }),
+);
+
+router.post(
+  '/:code/attributes/:key/restore',
+  asyncHandler(async (req, res) => {
+    const attribute = await assetTypes.setAttributeActive(req.params.code.toUpperCase(), req.params.key, true);
+    res.json(toAttributeDto(attribute));
   }),
 );
 
