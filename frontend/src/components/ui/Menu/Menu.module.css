@@ -28,7 +28,7 @@
   min-width: 128px;
   padding: 6px 8px;
   border-radius: var(--md-shape-xs);
-  background: var(--md-surface);
+  background: var(--md-surface-container);
   box-shadow: var(--md-elevation-2);
   text-align: left;
 }
@@ -38,7 +38,7 @@
   composes: stateLayer from '../../../styles/state-layer.module.css';
   display: flex;
   align-items: center;
-  height: 32px;
+  height: 48px;
   padding: 0 12px;
   border: none;
   border-radius: var(--md-shape-xs);
