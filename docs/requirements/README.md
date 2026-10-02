@@ -12,12 +12,15 @@ the exported file.
 | S-02 | Browse, filter and page the asset list | 1 | planning | P-ASS-03 |
 | S-03 | Export the asset list to Excel | 1 | planning | P-EXP-01, P-EXP-03, P-EXP-04, P-EXP-05 |
 | S-04 | Customize the exported file | 1 | planning | P-CUS-01, P-CUS-02, P-CUS-03 |
+| US-14 | Sign in and access protected functions | TBD | done | — |
+| US-15 | Manage roles and enforce permissions | TBD | done | — |
 
 ## Sprints
 
 | Sprint | Dates | Stories |
 |---|---|---|
 | 1 | 15/09/2026 | S-01, S-02, S-03, S-04 |
+| TBD | To be scheduled | US-14, US-15 |
 
 ## Glossary
 
