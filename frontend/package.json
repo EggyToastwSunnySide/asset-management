@@ -7,10 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "preview": "vite preview",
     "check:contrast": "node scripts/check-contrast.mjs",
     "check:m3": "node scripts/check-m3.mjs",
-    "check": "tsc --noEmit && npm run check:contrast && npm run check:m3 && npm run check:a11y && npm run build",
+    "check": "tsc --noEmit && npm test && npm run check:contrast && npm run check:m3 && npm run check:a11y && npm run build",
     "check:a11y": "node scripts/check-a11y.mjs"
   },
   "dependencies": {
@@ -25,12 +27,18 @@
   },
   "devDependencies": {
     "@tanstack/react-query-devtools": "^5.103.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^29.1.1",
+    "msw": "^2.15.0",
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "vitest": "^5.0.3"
   }
 }

@@ -22,6 +22,8 @@ import styles from './AssetToolbar.module.css'
 export interface AssetToolbarProps {
   onExport: () => void
   onAdd: () => void
+  canExport: boolean
+  canCreate: boolean
 }
 
 /**
@@ -29,7 +31,7 @@ export interface AssetToolbarProps {
  * actions sit together on the right — the filters folded into one popover so
  * the bar stays a single row however many conditions are applied.
  */
-export function AssetToolbar({ onExport, onAdd }: AssetToolbarProps) {
+export function AssetToolbar({ onExport, onAdd, canExport, canCreate }: AssetToolbarProps) {
   const dispatch = useAppDispatch()
   const search = useAppSelector((state) => state.assetsUi.filters.search)
 
@@ -46,15 +48,19 @@ export function AssetToolbar({ onExport, onAdd }: AssetToolbarProps) {
       <div className={styles.actions}>
         <FiltersPopover />
 
-        <Button variant="outline" onClick={onExport}>
-          <Upload size={18} aria-hidden="true" />
-          Export
-        </Button>
+        {canExport && (
+          <Button variant="outline" onClick={onExport}>
+            <Upload size={18} aria-hidden="true" />
+            Export
+          </Button>
+        )}
 
-        <Button variant="primary" onClick={onAdd}>
-          <Plus size={18} aria-hidden="true" />
-          Add record
-        </Button>
+        {canCreate && (
+          <Button variant="primary" onClick={onAdd}>
+            <Plus size={18} aria-hidden="true" />
+            Add record
+          </Button>
+        )}
       </div>
     </div>
   )

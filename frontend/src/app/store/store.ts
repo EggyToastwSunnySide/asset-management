@@ -2,15 +2,16 @@ import { configureStore } from '@reduxjs/toolkit'
 import { rootReducer } from './rootReducer'
 import { SIDEBAR_STORAGE_KEY } from './uiSlice'
 
-export const store = configureStore({
-  reducer: rootReducer,
-})
+export function createAppStore() {
+  return configureStore({ reducer: rootReducer })
+}
 
-export type AppDispatch = typeof store.dispatch
+export const store = createAppStore()
 
-// Persist the one piece of UI state that should survive a reload. This is a
-// deliberately small, dependency-free stand-in for redux-persist — reach for
-// that package instead if more slices need persisting later.
+export type AppStore = ReturnType<typeof createAppStore>
+export type AppDispatch = AppStore['dispatch']
+
+// Persist the one preference that intentionally crosses identities.
 let lastSidebarCollapsed = store.getState().ui.sidebarCollapsed
 store.subscribe(() => {
   const { sidebarCollapsed } = store.getState().ui
@@ -19,6 +20,6 @@ store.subscribe(() => {
   try {
     localStorage.setItem(SIDEBAR_STORAGE_KEY, sidebarCollapsed ? '1' : '0')
   } catch {
-    // storage unavailable; collapse state just won't persist
+    // Storage unavailable; collapse state just won't persist.
   }
 })

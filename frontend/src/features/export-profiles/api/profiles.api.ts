@@ -20,10 +20,11 @@ export const profileKeys = {
   lists: () => [...profileKeys.all, 'list'] as const,
 }
 
-export function useProfilesQuery() {
+export function useProfilesQuery(enabled = true) {
   return useQuery({
     queryKey: profileKeys.lists(),
     queryFn: fetchProfiles,
+    enabled,
   })
 }
 

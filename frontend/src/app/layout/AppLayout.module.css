@@ -21,6 +21,10 @@
 }
 
 @media (max-width: 900px) {
+  .app {
+    flex-direction: column;
+  }
+
   .content {
     padding: 24px 18px 50px;
   }

@@ -1,0 +1,292 @@
+.stack {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.section {
+  padding: var(--space-5);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-md);
+  background: var(--md-surface);
+}
+
+.sectionHeader,
+.editorHeader,
+.assignmentHeader,
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.sectionHeader {
+  margin-bottom: var(--space-5);
+}
+
+.sectionHeader h2,
+.editorHeader h3,
+.assignmentHeader h3 {
+  font-size: var(--md-title-md-size);
+  line-height: var(--md-title-md-line);
+}
+
+.sectionHeader p,
+.editorHeader p,
+.assignmentHeader p,
+.placeholder {
+  color: var(--md-on-surface-variant);
+  font-size: var(--font-size-sm);
+}
+
+.roleWorkspace {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.roleList {
+  display: grid;
+  gap: 3px;
+}
+
+.roleList button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: var(--md-shape-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.roleList button:hover,
+.roleList .roleSelected {
+  background: var(--md-surface-container);
+}
+
+.roleList .roleSelected {
+  border-left-color: var(--md-primary);
+}
+
+.roleList button span {
+  font-weight: 600;
+}
+
+.roleList button small {
+  color: var(--md-on-surface-variant);
+}
+
+.editor {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+  padding: var(--space-5);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-sm);
+}
+
+.editorFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.activeToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  grid-column: 1 / -1;
+}
+
+.notice,
+.error {
+  padding: var(--space-3);
+  border-radius: var(--md-shape-sm);
+  font-size: var(--font-size-sm);
+}
+
+.notice {
+  background: var(--md-surface-container);
+  color: var(--md-on-surface-variant);
+}
+
+.error {
+  background: var(--md-error-container);
+  color: var(--md-error);
+}
+
+.subheading {
+  margin-bottom: var(--space-3);
+  font-size: var(--md-title-sm-size);
+}
+
+.permissionGroups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.permissionGroup {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-sm);
+}
+
+.permissionGroup legend {
+  padding: 0 var(--space-1);
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+}
+
+.permissionOption,
+.assignmentRoles label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.permissionOption span,
+.assignmentRoles label span {
+  display: grid;
+  min-width: 0;
+}
+
+.permissionOption strong,
+.assignmentRoles strong {
+  font-size: var(--font-size-sm);
+}
+
+.permissionOption small,
+.assignmentRoles small {
+  overflow-wrap: anywhere;
+  color: var(--md-on-surface-variant);
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.userSearch {
+  width: min(100%, 440px);
+  margin-bottom: var(--space-4);
+}
+
+.userList {
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-sm);
+  overflow: hidden;
+}
+
+.userRow {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1.4fr) auto;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+}
+
+.userRow + .userRow {
+  border-top: 1px solid var(--md-outline-variant);
+}
+
+.userIdentity {
+  display: grid;
+}
+
+.userIdentity span,
+.userRoles > span {
+  color: var(--md-on-surface-variant);
+  font-size: var(--font-size-sm);
+}
+
+.userRoles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.userActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.assignmentEditor {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-sm);
+}
+
+.assignmentRoles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.pagination {
+  margin-top: var(--space-4);
+  color: var(--md-on-surface-variant);
+  font-size: var(--font-size-sm);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 900px) {
+  .roleWorkspace,
+  .userRow {
+    grid-template-columns: 1fr;
+  }
+
+  .roleList {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .permissionGroups,
+  .assignmentRoles {
+    grid-template-columns: 1fr;
+  }
+
+  .userActions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 600px) {
+  .sectionHeader,
+  .assignmentHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .editorFields {
+    grid-template-columns: 1fr;
+  }
+}

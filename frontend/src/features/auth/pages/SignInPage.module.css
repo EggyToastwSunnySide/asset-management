@@ -1,0 +1,78 @@
+.page {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  gap: var(--space-5);
+  padding: var(--space-6);
+  background:
+    radial-gradient(circle at 50% 0%, var(--md-primary-container), transparent 42%),
+    var(--color-bg);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  color: var(--color-sidebar-text);
+  font-size: var(--font-size-xl);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.brandAccent {
+  color: var(--md-on-surface-variant);
+  font-weight: 600;
+}
+
+.mark {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  font-size: var(--font-size-lg);
+}
+
+.card {
+  width: min(100vw - 32px, 430px);
+  padding: var(--space-8);
+  box-shadow: var(--md-elevation-1);
+}
+
+.heading h1 {
+  font-size: var(--md-headline-sm-size);
+  line-height: var(--md-headline-sm-line);
+}
+
+.heading p {
+  margin-top: var(--space-2);
+  color: var(--md-on-surface-variant);
+}
+
+.form {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+}
+
+.formError {
+  padding: var(--space-3);
+  border-radius: var(--md-shape-sm);
+  background: var(--md-error-container);
+  color: var(--md-error);
+  font-size: var(--font-size-sm);
+}
+
+.submit {
+  width: 100%;
+  margin-top: var(--space-2);
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: var(--space-6);
+  }
+}

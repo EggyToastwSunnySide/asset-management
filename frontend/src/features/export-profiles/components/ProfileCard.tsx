@@ -7,9 +7,11 @@ export interface ProfileCardProps {
   profile: ExportProfile
   onEdit: () => void
   onDelete: () => void
+  canUpdate: boolean
+  canDelete: boolean
 }
 
-export function ProfileCard({ profile, onEdit, onDelete }: ProfileCardProps) {
+export function ProfileCard({ profile, onEdit, onDelete, canUpdate, canDelete }: ProfileCardProps) {
   const included = profile.columns.filter((c) => c.included)
 
   return (
@@ -36,15 +38,21 @@ export function ProfileCard({ profile, onEdit, onDelete }: ProfileCardProps) {
         ))}
       </ol>
 
-      <div className={styles.actions}>
-        <IconButton danger aria-label={`Delete ${profile.name}`} onClick={onDelete}>
-          <Trash2 size={18} aria-hidden="true" />
-        </IconButton>
-        <Button size="sm" variant="outline" onClick={onEdit}>
-          <Pencil size={16} aria-hidden="true" />
-          Edit
-        </Button>
-      </div>
+      {(canUpdate || canDelete) && (
+        <div className={styles.actions}>
+          {canDelete && (
+            <IconButton danger aria-label={`Delete ${profile.name}`} onClick={onDelete}>
+              <Trash2 size={18} aria-hidden="true" />
+            </IconButton>
+          )}
+          {canUpdate && (
+            <Button size="sm" variant="outline" onClick={onEdit}>
+              <Pencil size={16} aria-hidden="true" />
+              Edit
+            </Button>
+          )}
+        </div>
+      )}
     </Card>
   )
 }

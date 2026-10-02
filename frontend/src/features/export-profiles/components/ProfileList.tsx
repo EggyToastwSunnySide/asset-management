@@ -13,6 +13,9 @@ export interface ProfileListProps {
   onClearSearch: () => void
   onEdit: (profile: ExportProfile) => void
   onDelete: (profile: ExportProfile) => void
+  canCreate: boolean
+  canUpdate: boolean
+  canDelete: boolean
 }
 
 export function ProfileList({
@@ -23,6 +26,9 @@ export function ProfileList({
   onClearSearch,
   onEdit,
   onDelete,
+  canCreate,
+  canUpdate,
+  canDelete,
 }: ProfileListProps) {
   if (isLoading) {
     return <EmptyState title="Loading profiles…" />
@@ -34,9 +40,11 @@ export function ProfileList({
         title="No saved profiles yet"
         description="Save a column layout from the export dialog, or start a new one here."
         action={
-          <Button variant="primary" onClick={onCreate}>
-            New profile
-          </Button>
+          canCreate ? (
+            <Button variant="primary" onClick={onCreate}>
+              New profile
+            </Button>
+          ) : undefined
         }
       />
     )
@@ -70,6 +78,8 @@ export function ProfileList({
               profile={profile}
               onEdit={() => onEdit(profile)}
               onDelete={() => onDelete(profile)}
+              canUpdate={canUpdate}
+              canDelete={canDelete}
             />
           </li>
         ))}

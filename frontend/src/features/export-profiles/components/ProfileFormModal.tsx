@@ -19,12 +19,12 @@ export interface ProfileFormModalProps {
 }
 
 export function ProfileFormModal({ editingProfileId, onClose }: ProfileFormModalProps) {
-  const { data: profiles = [] } = useProfilesQuery()
+  const open = editingProfileId !== null
+  const { data: profiles = [] } = useProfilesQuery(open)
   const createProfile = useCreateProfileMutation()
   const updateProfile = useUpdateProfileMutation()
   const toast = useToast()
 
-  const open = editingProfileId !== null
   const existing = profiles.find((p) => p.id === editingProfileId) ?? null
 
   const [name, setName] = useState('')

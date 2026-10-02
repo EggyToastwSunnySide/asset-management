@@ -4,6 +4,7 @@ import { Button, PageHeader, SearchField } from '@/components/ui'
 import { useToast } from '@/components/ui/Toast'
 import { describeError } from '@/lib/apiClient'
 import { useAppDispatch, useAppSelector } from '@/app/store'
+import { hasPermission, useCurrentSessionQuery } from '@/features/auth'
 import {
   useCreateProfileMutation,
   useDeleteProfileMutation,
@@ -18,8 +19,13 @@ import styles from './ExportProfilesPage.module.css'
 export function ExportProfilesPage() {
   const dispatch = useAppDispatch()
   const editingProfileId = useAppSelector((state) => state.exportProfilesUi.editingProfileId)
+  const { data: session } = useCurrentSessionQuery()
+  const canView = hasPermission(session, 'exportProfiles.view')
+  const canCreate = hasPermission(session, 'exportProfiles.create')
+  const canUpdate = hasPermission(session, 'exportProfiles.update')
+  const canDelete = hasPermission(session, 'exportProfiles.delete')
 
-  const { data: profiles = [], isLoading } = useProfilesQuery()
+  const { data: profiles = [], isLoading } = useProfilesQuery(canView)
   const deleteProfile = useDeleteProfileMutation()
   const createProfile = useCreateProfileMutation()
   const toast = useToast()
@@ -32,24 +38,29 @@ export function ExportProfilesPage() {
     : profiles
 
   function handleDelete(profile: ExportProfile) {
+    if (!canDelete) return
     const onError = (error: Error) => toast.show(describeError(error))
     deleteProfile.mutate(profile.id, {
       onSuccess: () =>
-        toast.show(`Deleted profile "${profile.name}".`, {
-          undo: {
-            // Profiles are hard-deleted (ADR-0013), so undo re-creates it
-            // under a new id from the copy held here.
-            onUndo: () =>
-              createProfile.mutate(
-                {
-                  name: profile.name,
-                  dateFormat: profile.dateFormat,
-                  columns: profile.columns,
+        toast.show(
+          `Deleted profile "${profile.name}".`,
+          canCreate
+            ? {
+                undo: {
+                  // Profiles are hard-deleted, so undo re-creates the held copy.
+                  onUndo: () =>
+                    createProfile.mutate(
+                      {
+                        name: profile.name,
+                        dateFormat: profile.dateFormat,
+                        columns: profile.columns,
+                      },
+                      { onError },
+                    ),
                 },
-                { onError },
-              ),
-          },
-        }),
+              }
+            : undefined,
+        ),
       onError,
     })
   }
@@ -71,10 +82,12 @@ export function ExportProfilesPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <Button variant="primary" onClick={() => dispatch(openNewProfile())}>
-          <Plus size={18} aria-hidden="true" />
-          New profile
-        </Button>
+        {canCreate && (
+          <Button variant="primary" onClick={() => dispatch(openNewProfile())}>
+            <Plus size={18} aria-hidden="true" />
+            New profile
+          </Button>
+        )}
       </div>
 
       <ProfileList
@@ -85,12 +98,19 @@ export function ExportProfilesPage() {
         onClearSearch={() => setSearch('')}
         onEdit={(profile) => dispatch(openEditProfile(profile.id))}
         onDelete={handleDelete}
+        canCreate={canCreate}
+        canUpdate={canUpdate}
+        canDelete={canDelete}
       />
 
-      <ProfileFormModal
-        editingProfileId={editingProfileId}
-        onClose={() => dispatch(closeProfileForm())}
-      />
+      {editingProfileId &&
+        ((editingProfileId === 'new' && canCreate) ||
+          (editingProfileId !== 'new' && canUpdate)) && (
+          <ProfileFormModal
+            editingProfileId={editingProfileId}
+            onClose={() => dispatch(closeProfileForm())}
+          />
+        )}
     </>
   )
 }

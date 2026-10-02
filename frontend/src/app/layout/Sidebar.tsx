@@ -1,7 +1,14 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Boxes, ChevronLeft, FileOutput } from 'lucide-react'
+import { Boxes, ChevronLeft, FileOutput, LogOut, ShieldCheck } from 'lucide-react'
 import { useAppDispatch, useAppSelector, toggleSidebar } from '@/app/store'
+import {
+  hasAnyPermission,
+  hasEveryPermission,
+  useAuthActions,
+  useCurrentSessionQuery,
+  type PermissionKey,
+} from '@/features/auth'
 import { cn } from '@/utils/cn'
 import styles from './Sidebar.module.css'
 
@@ -9,6 +16,8 @@ interface NavItem {
   to: string
   label: string
   icon: ReactNode
+  permissions: readonly PermissionKey[]
+  mode?: 'all' | 'any'
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -16,25 +25,39 @@ const NAV_ITEMS: NavItem[] = [
     to: '/inventory',
     label: 'Inventory',
     icon: <Boxes />,
+    permissions: ['assets.view'],
   },
   {
     to: '/export-profiles',
     label: 'Export profiles',
     icon: <FileOutput />,
+    permissions: ['exportProfiles.view'],
+  },
+  {
+    to: '/admin/access',
+    label: 'Access control',
+    icon: <ShieldCheck />,
+    permissions: ['roles.view', 'users.view'],
+    mode: 'any',
   },
 ]
 
 export function Sidebar() {
   const collapsed = useAppSelector((state) => state.ui.sidebarCollapsed)
   const dispatch = useAppDispatch()
+  const { data: session } = useCurrentSessionQuery()
+  const { signOut, isSigningOut } = useAuthActions()
   const BrandTag = collapsed ? 'button' : 'div'
+
+  const navItems = NAV_ITEMS.filter((item) =>
+    item.mode === 'any'
+      ? hasAnyPermission(session, item.permissions)
+      : hasEveryPermission(session, item.permissions),
+  )
 
   return (
     <aside className={cn(styles.sidebar, collapsed && styles.collapsed)}>
       <div className={styles.top}>
-        {/* Collapsed, the brand IS the expand control, so it has to be a real
-            button — otherwise collapsing the sidebar strands keyboard users
-            with no focusable way to bring it back. */}
         <BrandTag
           className={cn(styles.brand, collapsed && styles.collapseBtn)}
           {...(collapsed
@@ -63,7 +86,7 @@ export function Sidebar() {
           </span>
         </BrandTag>
 
-        {!collapsed &&
+        {!collapsed && (
           <button
             type="button"
             className={styles.collapseBtn}
@@ -73,11 +96,11 @@ export function Sidebar() {
           >
             <ChevronLeft strokeWidth={2.4} className={styles.collapseIcon} />
           </button>
-        }
+        )}
       </div>
 
-      <nav className={styles.nav}>
-        {NAV_ITEMS.map((item) => (
+      <nav className={styles.nav} aria-label="Primary navigation">
+        {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -90,7 +113,23 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className={styles.footer}>Signed in as Phu &middot; Asset Manager</div>
+      <div className={styles.footer}>
+        <div className={styles.identity}>
+          <strong title={session?.user.email}>{session?.user.displayName}</strong>
+          <span>{session?.roles.map((role) => role.name).join(', ') || 'No assigned role'}</span>
+        </div>
+        <button
+          type="button"
+          className={styles.signOut}
+          aria-label="Sign out"
+          title="Sign out"
+          disabled={isSigningOut}
+          onClick={() => void signOut()}
+        >
+          <LogOut size={17} aria-hidden="true" />
+          <span>{isSigningOut ? 'Signing out…' : 'Sign out'}</span>
+        </button>
+      </div>
     </aside>
   )
 }

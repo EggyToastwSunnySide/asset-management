@@ -14,10 +14,18 @@
 }
 
 /* M3 supporting text — 16px inset to align with the field's text baseline */
-.hint {
+.hint,
+.error {
   padding: 0 16px;
   font-size: var(--md-body-sm-size);
   line-height: var(--md-body-sm-line);
   letter-spacing: var(--md-body-sm-tracking);
+}
+
+.hint {
   color: var(--md-on-surface-variant);
+}
+
+.error {
+  color: var(--md-error);
 }

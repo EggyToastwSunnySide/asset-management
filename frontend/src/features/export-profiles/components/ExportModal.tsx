@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button, FormField, Modal, Input, Select } from '@/components/ui'
 import { useToast } from '@/components/ui/Toast'
 import { describeError } from '@/lib/apiClient'
+import { hasEveryPermission, hasPermission, useCurrentSessionQuery } from '@/features/auth'
 import { useExportAssetsMutation } from '../api/exports.api'
 import { useCreateProfileMutation, useProfilesQuery } from '../api/profiles.api'
 import { useExportColumns } from '../hooks/useExportColumns'
@@ -20,7 +21,11 @@ export interface ExportModalProps {
 
 /** The "Export to Excel" dialog opened from the Inventory page (S-03 / S-04). */
 export function ExportModal({ open, onClose, scopeCount, scope }: ExportModalProps) {
-  const { data: profiles = [] } = useProfilesQuery()
+  const { data: session } = useCurrentSessionQuery()
+  const canExport = hasEveryPermission(session, ['assets.view', 'exports.run'])
+  const canViewProfiles = hasPermission(session, 'exportProfiles.view')
+  const canCreateProfile = hasPermission(session, 'exportProfiles.create')
+  const { data: profiles = [] } = useProfilesQuery(open && canViewProfiles)
   const createProfile = useCreateProfileMutation()
   const exportAssets = useExportAssetsMutation()
   const toast = useToast()
@@ -54,6 +59,7 @@ export function ExportModal({ open, onClose, scopeCount, scope }: ExportModalPro
   }
 
   function handleSaveProfile() {
+    if (!canCreateProfile) return
     if (!profileName.trim()) {
       toast.show('Give the profile a name before saving.')
       return
@@ -68,6 +74,7 @@ export function ExportModal({ open, onClose, scopeCount, scope }: ExportModalPro
   }
 
   function handleExport() {
+    if (!canExport) return
     if (!columns.some((c) => c.included)) {
       toast.show('Pick at least one column to export.')
       return
@@ -83,6 +90,8 @@ export function ExportModal({ open, onClose, scopeCount, scope }: ExportModalPro
       },
     )
   }
+
+  if (!canExport) return null
 
   return (
     <Modal
@@ -107,20 +116,22 @@ export function ExportModal({ open, onClose, scopeCount, scope }: ExportModalPro
         current filters.
       </div>
 
-      <FormField label="Start from" htmlFor="profile-select">
-        <Select
-          id="profile-select"
-          value={profileId}
-          onChange={(e) => handleProfileSelect(e.target.value)}
-        >
-          <option value="">Ad-hoc (default columns)</option>
-          {profiles.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </Select>
-      </FormField>
+      {canViewProfiles && (
+        <FormField label="Start from" htmlFor="profile-select">
+          <Select
+            id="profile-select"
+            value={profileId}
+            onChange={(e) => handleProfileSelect(e.target.value)}
+          >
+            <option value="">Ad-hoc (default columns)</option>
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+      )}
 
       <div>
         <div className={styles.sectionLabel}>Columns &amp; order</div>
@@ -139,20 +150,22 @@ export function ExportModal({ open, onClose, scopeCount, scope }: ExportModalPro
         </Select>
       </FormField>
 
-      <div>
-        <div className={styles.sectionLabel}>Save this layout</div>
-        <div className={styles.saveRow}>
-          <Input
-            aria-label="Profile name"
-            placeholder="Profile name, e.g. Monthly IT report"
-            value={profileName}
-            onChange={(e) => setProfileName(e.target.value)}
-          />
-          <Button size="sm" variant="outline" onClick={handleSaveProfile}>
-            Save profile
-          </Button>
+      {canCreateProfile && (
+        <div>
+          <div className={styles.sectionLabel}>Save this layout</div>
+          <div className={styles.saveRow}>
+            <Input
+              aria-label="Profile name"
+              placeholder="Profile name, e.g. Monthly IT report"
+              value={profileName}
+              onChange={(e) => setProfileName(e.target.value)}
+            />
+            <Button size="sm" variant="outline" onClick={handleSaveProfile}>
+              Save profile
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </Modal>
   )
 }
