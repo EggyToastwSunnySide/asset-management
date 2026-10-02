@@ -41,7 +41,13 @@ services:
       DB_NAME: asset_management
       DB_USER: asset_app
       DB_PASSWORD: asset_app_dev
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-local-env}
+      # The browser reaches the SPA and the API through the gateway origin.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
+      # Override with a random value of at least 32 characters in any deployment.
+      CSRF_SECRET: ${CSRF_SECRET:-local-development-csrf-secret-change-before-production}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SESSION_IDLE_TTL_SECONDS: ${SESSION_IDLE_TTL_SECONDS:-1800}
+      SESSION_ABSOLUTE_TTL_SECONDS: ${SESSION_ABSOLUTE_TTL_SECONDS:-43200}
     # Not published: only the gateway reaches the API.
     expose:
       - "3000"

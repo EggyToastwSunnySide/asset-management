@@ -13,7 +13,8 @@ RUN npm ci --omit=dev --no-audit --no-fund
 COPY app.js config.js ./
 COPY bin ./bin
 COPY api ./api
-COPY db/pool.js ./db/pool.js
+COPY db ./db
+COPY security ./security
 COPY repositories ./repositories
 COPY services ./services
 COPY routes ./routes

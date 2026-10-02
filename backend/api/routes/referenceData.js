@@ -1,5 +1,6 @@
 const express = require('express');
 const { asyncHandler } = require('../errors');
+const { requirePermissions } = require('../middleware/permissions');
 const { listReferenceData } = require('../../repositories/referenceData.repo');
 
 const router = express.Router();
@@ -12,6 +13,7 @@ const router = express.Router();
  */
 router.get(
   '/',
+  requirePermissions('assets.view'),
   asyncHandler(async (req, res) => {
     res.json(await listReferenceData());
   }),

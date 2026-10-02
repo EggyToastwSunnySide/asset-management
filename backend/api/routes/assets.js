@@ -1,6 +1,6 @@
 const express = require('express');
 const { ApiError, asyncHandler, uuidParam } = require('../errors');
-const { currentUser } = require('../middleware/currentUser');
+const { requirePermissions } = require('../middleware/permissions');
 const { parseCreateAsset, parseUpdateAsset, parseListQuery, toAssetDto } = require('../dto/assets.dto');
 const assets = require('../../repositories/assets.repo');
 
@@ -22,10 +22,10 @@ const router = express.Router();
  */
 
 router.param('id', uuidParam('Asset'));
-router.use(currentUser);
 
 router.get(
   '/',
+  requirePermissions('assets.view'),
   asyncHandler(async (req, res) => {
     const query = parseListQuery(req.query);
     const page = await assets.listAssets(query);
@@ -35,6 +35,7 @@ router.get(
 
 router.get(
   '/:id',
+  requirePermissions('assets.view'),
   asyncHandler(async (req, res) => {
     const asset = await assets.findAsset(req.params.id);
     if (!asset) throw new ApiError(404, 'NOT_FOUND', 'Asset not found');
@@ -44,6 +45,7 @@ router.get(
 
 router.post(
   '/',
+  requirePermissions('assets.create'),
   asyncHandler(async (req, res) => {
     const input = parseCreateAsset(req.body);
     const asset = await assets.createAsset(input, req.user.id);
@@ -53,6 +55,7 @@ router.post(
 
 router.put(
   '/:id',
+  requirePermissions('assets.update'),
   asyncHandler(async (req, res) => {
     const input = parseUpdateAsset(req.body);
     const asset = await assets.updateAsset(req.params.id, input, req.user.id);
@@ -62,6 +65,7 @@ router.put(
 
 router.delete(
   '/:id',
+  requirePermissions('assets.archive'),
   asyncHandler(async (req, res) => {
     await assets.softDeleteAsset(req.params.id, req.user.id);
     res.status(204).end();
@@ -70,6 +74,7 @@ router.delete(
 
 router.post(
   '/:id/restore',
+  requirePermissions('assets.restore'),
   asyncHandler(async (req, res) => {
     const asset = await assets.restoreAsset(req.params.id, req.user.id);
     res.json(toAssetDto(asset));

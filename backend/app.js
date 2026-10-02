@@ -3,10 +3,10 @@ var express = require('express');
 var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
+var helmet = require('helmet');
 
 var apiRouter = require('./api');
 var indexRouter = require('./routes/index');
-var usersRouter = require('./routes/users');
 
 var app = express();
 
@@ -19,6 +19,19 @@ app.set('view engine', 'ejs');
 app.set('trust proxy', 'loopback, uniquelocal');
 
 app.use(logger('dev'));
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:'],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+      },
+    },
+  }),
+);
+app.use(cookieParser());
 
 // The JSON API parses its own bodies and answers its own errors (api/index.js),
 // so it is mounted before the HTML scaffold below can intercept anything.
@@ -26,11 +39,9 @@ app.use('/api', apiRouter);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/', indexRouter);
-app.use('/users', usersRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

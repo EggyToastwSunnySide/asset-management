@@ -1,6 +1,6 @@
 const express = require('express');
 const { asyncHandler } = require('../errors');
-const { currentUser } = require('../middleware/currentUser');
+const { requirePermissions } = require('../middleware/permissions');
 const { parseExportRequest } = require('../dto/exports.dto');
 const { listAllAssets } = require('../../repositories/assets.repo');
 const { buildAssetWorkbook } = require('../../services/assetExport');
@@ -20,10 +20,9 @@ const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
  *           Content-Disposition: attachment; filename="inventory-export-YYYY-MM-DD.xlsx"
  */
 
-router.use(currentUser);
-
 router.post(
   '/assets',
+  requirePermissions('assets.view', 'exports.run'),
   asyncHandler(async (req, res) => {
     const { filters, sort, columns, dateFormat } = parseExportRequest(req.body);
     const rows = await listAllAssets({ filters, sort });

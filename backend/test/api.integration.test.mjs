@@ -19,11 +19,20 @@ const skip = await recreateTestDatabase();
 let server;
 let baseUrl;
 let pool;
+let sessionCookie;
+let csrfToken;
+const origin = 'http://localhost:5173';
 
-async function api(method, path, body) {
+async function api(method, path, body, options = {}) {
+  const headers = { Origin: origin, ...(options.headers || {}) };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (sessionCookie && options.auth !== false) headers.Cookie = sessionCookie;
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && path !== '/auth/sign-in' && options.csrf !== false) {
+    headers['X-CSRF-Token'] = csrfToken;
+  }
   const res = await fetch(baseUrl + path, {
     method,
-    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    headers,
     body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
   });
   const type = res.headers.get('content-type') || '';
@@ -47,9 +56,32 @@ describe('asset management API', { skip: skip || false }, () => {
   before(async () => {
     const app = require('../app');
     pool = require('../db/pool').pool;
+    const { hashPassword } = require('../security/passwords');
+    const passwordHash = await hashPassword('Integration password 1');
+    const created = await pool.query(
+      `INSERT INTO fw_users (email, password_hash, display_name, role)
+       VALUES ('integration.admin@example.test', $1, 'Integration Admin', 'admin')
+       RETURNING id`,
+      [passwordHash],
+    );
+    await pool.query(
+      `INSERT INTO fw_user_roles (user_id, role_id)
+       SELECT $1, id FROM fw_roles WHERE system_key = 'admin'`,
+      [created.rows[0].id],
+    );
+
     server = app.listen(0);
     await new Promise((resolve) => server.once('listening', resolve));
     baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+    const signedIn = await api(
+      'POST',
+      '/auth/sign-in',
+      { email: 'integration.admin@example.test', password: 'Integration password 1' },
+      { auth: false },
+    );
+    assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
+    sessionCookie = signedIn.headers.get('set-cookie').split(';', 1)[0];
+    csrfToken = signedIn.body.csrfToken;
   });
 
   after(async () => {

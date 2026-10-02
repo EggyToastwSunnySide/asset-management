@@ -41,6 +41,57 @@ test('every $ref resolves', () => {
   }
 });
 
+test('authentication is default-deny with explicit public operation overrides', () => {
+  assert.deepEqual(spec.security, [{ cookieAuth: [] }]);
+  assert.equal(spec.components.securitySchemes.cookieAuth.in, 'cookie');
+  const publicOperations = [];
+  for (const [path, item] of Object.entries(spec.paths)) {
+    for (const method of METHODS) {
+      if (item[method] && item[method].security && item[method].security.length === 0) {
+        publicOperations.push(`${method.toUpperCase()} ${path}`);
+      }
+    }
+  }
+  assert.deepEqual(publicOperations.sort(), ['GET /health', 'POST /auth/sign-in']);
+});
+
+test('protected operations document auth errors and unsafe methods document CSRF', () => {
+  for (const [path, item] of Object.entries(spec.paths)) {
+    for (const method of METHODS) {
+      const operation = item[method];
+      if (!operation || (operation.security && operation.security.length === 0)) continue;
+      assert.ok(operation.responses[401], `${method.toUpperCase()} ${path} misses 401`);
+      assert.ok(operation.responses[403], `${method.toUpperCase()} ${path} misses 403`);
+      assert.ok(operation.responses[429], `${method.toUpperCase()} ${path} misses 429`);
+      if (['post', 'put', 'patch', 'delete'].includes(method)) {
+        assert.ok(
+          (operation.parameters || []).some((parameter) => parameter.$ref === '#/components/parameters/CsrfToken'),
+          `${method.toUpperCase()} ${path} misses CSRF header`,
+        );
+      }
+    }
+  }
+});
+
+test('every permission-protected operation declares its policy', () => {
+  const expected = new Set([
+    'GET /reference-data',
+    'GET /assets', 'POST /assets', 'GET /assets/{id}', 'PUT /assets/{id}', 'DELETE /assets/{id}',
+    'POST /assets/{id}/restore', 'POST /exports/assets',
+    'GET /export-profiles', 'POST /export-profiles', 'GET /export-profiles/{id}',
+    'PUT /export-profiles/{id}', 'DELETE /export-profiles/{id}',
+    'GET /permissions', 'GET /roles', 'POST /roles', 'GET /roles/{id}', 'PUT /roles/{id}',
+    'GET /users', 'PUT /users/{id}/roles',
+  ]);
+  const actual = new Set();
+  for (const [path, item] of Object.entries(spec.paths)) {
+    for (const method of METHODS) {
+      if (item[method] && item[method]['x-required-permissions']) actual.add(`${method.toUpperCase()} ${path}`);
+    }
+  }
+  assert.deepEqual([...actual].sort(), [...expected].sort());
+});
+
 test('serves the document and Swagger UI', async () => {
   const app = require('../app');
   const server = app.listen(0);

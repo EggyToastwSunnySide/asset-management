@@ -1,16 +1,5 @@
-/**
- * Recreates a throwaway database from backend/db/init/*.sql, so integration
- * tests run against the real schema (triggers, deferred constraints, seed
- * reference data) without touching the development database.
- *
- * Connection settings come from the same DB_* variables as the app; only the
- * database name is replaced. The DB user must be allowed to create databases
- * (the compose `asset_app` user is the container's superuser).
- */
-
-const fs = require('node:fs');
-const path = require('node:path');
 const { Client } = require('pg');
+const { runMigrations } = require('../../db/migrate');
 
 const TEST_DB_NAME = process.env.TEST_DB_NAME || 'asset_management_test';
 
@@ -25,7 +14,7 @@ function connectionFor(database) {
   };
 }
 
-/** Returns null when ready, or a reason string when the database server is unreachable. */
+/** Returns null when ready, or a reason string when PostgreSQL is unreachable. */
 async function recreateTestDatabase() {
   const admin = new Client(connectionFor('postgres'));
   try {
@@ -40,20 +29,16 @@ async function recreateTestDatabase() {
     await admin.end();
   }
 
-  const client = new Client(connectionFor(TEST_DB_NAME));
-  await client.connect();
-  try {
-    const initDir = path.join(__dirname, '..', '..', 'db', 'init');
-    for (const file of fs.readdirSync(initDir).filter((f) => f.endsWith('.sql')).sort()) {
-      await client.query(fs.readFileSync(path.join(initDir, file), 'utf8'));
-    }
-  } finally {
-    await client.end();
-  }
-
-  // Point the app's pool (db/pool.js reads config at require time) at the test DB.
+  process.env.NODE_ENV = 'test';
   process.env.DB_NAME = TEST_DB_NAME;
+  process.env.ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS || 'http://localhost:5173';
+  process.env.CSRF_SECRET = process.env.CSRF_SECRET || 'test-only-csrf-secret-at-least-thirty-two-characters';
+  process.env.SIGN_IN_RATE_LIMIT_MAX = process.env.SIGN_IN_RATE_LIMIT_MAX || '1000';
+  process.env.API_RATE_LIMIT_MAX = process.env.API_RATE_LIMIT_MAX || '100000';
+  process.env.AUTH_LOCKOUT_MAX_FAILURES = process.env.AUTH_LOCKOUT_MAX_FAILURES || '3';
+
+  await runMigrations(connectionFor(TEST_DB_NAME));
   return null;
 }
 
-module.exports = { recreateTestDatabase };
+module.exports = { TEST_DB_NAME, connectionFor, recreateTestDatabase };

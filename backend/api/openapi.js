@@ -7,6 +7,7 @@
  * checks that every mounted route is documented and every documented route exists.
  */
 
+const config = require('../config');
 const {
   SORT_KEYS,
   SORT_DIRECTIONS,
@@ -111,7 +112,9 @@ const spec = {
       '- Type, status and location are reference-data **codes** (see `GET /reference-data`); responses also carry display names.',
       '- Deleted assets are soft-deleted (ADR-0002): they 404 by id, never list, never export, and can be restored.',
       '- Every error uses one envelope: `{ "error": { "code", "message", "fields"? } }`. `fields` maps request fields to messages (ADR-0005).',
-      '- No authentication yet: every request acts as a single default user, who owns all export profiles (ADR-0013).',
+      '- Cookie authentication is required by default. Only health, API documentation and sign-in are public.',
+      '- Unsafe protected requests require the `X-CSRF-Token` returned by sign-in or session bootstrap and an approved `Origin`.',
+      '- Role permissions are evaluated from the database on every authenticated request. Export profiles remain private to their owner.',
     ].join('\n'),
   },
   // Relative, so "Try it out" works via the nginx gateway, the Vite proxy or Express directly.
@@ -583,5 +586,351 @@ const spec = {
     },
   },
 };
+
+spec.security = [{ cookieAuth: [] }];
+spec.tags.push(
+  { name: 'Authentication', description: 'Opaque cookie session lifecycle' },
+  { name: 'Access control', description: 'Permission catalogue, roles and user assignments' },
+);
+
+Object.assign(spec.paths, {
+  '/auth/sign-in': {
+    post: {
+      tags: ['Authentication'],
+      summary: 'Sign in with email and password',
+      description: 'Public, approved-origin endpoint. All credential failures use the same generic response.',
+      security: [],
+      requestBody: { required: true, content: json(ref('SignInRequest')) },
+      responses: {
+        200: {
+          description: 'Signed in; the opaque token is set only in an HttpOnly cookie',
+          headers: { 'Set-Cookie': { schema: { type: 'string' } } },
+          content: json(ref('AuthContext')),
+        },
+        401: response('InvalidCredentials'),
+        403: response('Forbidden'),
+        422: response('ValidationFailed'),
+        429: response('RateLimited'),
+        503: response('DatabaseUnavailable'),
+      },
+    },
+  },
+  '/auth/session': {
+    get: {
+      tags: ['Authentication'],
+      summary: 'Restore the current browser session',
+      responses: { 200: { description: 'Current user, roles, permissions and expiry', content: json(ref('AuthContext')) } },
+    },
+  },
+  '/auth/sign-out': {
+    post: {
+      tags: ['Authentication'],
+      summary: 'Revoke the current session and clear its cookie',
+      responses: { 204: { description: 'Signed out' } },
+    },
+  },
+  '/permissions': {
+    get: {
+      tags: ['Access control'],
+      summary: 'List the stable permission catalogue',
+      'x-required-permissions': ['roles.view'],
+      responses: {
+        200: { description: 'Permission catalogue', content: json({ type: 'array', items: ref('Permission') }) },
+      },
+    },
+  },
+  '/roles': {
+    get: {
+      tags: ['Access control'],
+      summary: 'List built-in and custom roles',
+      'x-required-permissions': ['roles.view'],
+      responses: { 200: { description: 'Roles', content: json({ type: 'array', items: ref('Role') }) } },
+    },
+    post: {
+      tags: ['Access control'],
+      summary: 'Create a custom role',
+      description: 'The caller may include only permissions they possess.',
+      'x-required-permissions': ['roles.create'],
+      requestBody: { required: true, content: json(ref('RoleCreate')) },
+      responses: {
+        201: {
+          description: 'Created',
+          headers: { Location: { schema: { type: 'string' } } },
+          content: json(ref('Role')),
+        },
+        409: response('Conflict'),
+        422: response('ValidationFailed'),
+      },
+    },
+  },
+  '/roles/{id}': {
+    parameters: [{ $ref: '#/components/parameters/RoleId' }],
+    get: {
+      tags: ['Access control'],
+      summary: 'Read a role',
+      'x-required-permissions': ['roles.view'],
+      responses: {
+        200: { description: 'Role', content: json(ref('Role')) },
+        404: response('NotFound'),
+      },
+    },
+    put: {
+      tags: ['Access control'],
+      summary: 'Replace a custom role',
+      description: 'Built-in roles are immutable. Affected sessions are revoked.',
+      'x-required-permissions': ['roles.update'],
+      requestBody: { required: true, content: json(ref('RoleUpdate')) },
+      responses: {
+        200: { description: 'Updated role', content: json(ref('Role')) },
+        404: response('NotFound'),
+        409: response('Conflict'),
+        422: response('ValidationFailed'),
+      },
+    },
+  },
+  '/users': {
+    get: {
+      tags: ['Access control'],
+      summary: 'List users without credential or session secrets',
+      'x-required-permissions': ['users.view'],
+      parameters: [
+        { name: 'search', in: 'query', schema: { type: 'string', maxLength: 100 } },
+        { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
+        { name: 'pageSize', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+      ],
+      responses: { 200: { description: 'One user page', content: json(ref('UserPage')) } },
+    },
+  },
+  '/users/{id}/roles': {
+    parameters: [{ $ref: '#/components/parameters/UserId' }],
+    put: {
+      tags: ['Access control'],
+      summary: "Atomically replace another user's role assignments",
+      description: [
+        'Self-assignment, unknown/inactive/duplicate roles, delegation beyond the caller, and removal of the final',
+        'active usable administrator are rejected. The target user’s sessions are revoked.',
+      ].join(' '),
+      'x-required-permissions': ['roles.assign'],
+      requestBody: { required: true, content: json(ref('RoleAssignment')) },
+      responses: {
+        200: { description: 'Updated user', content: json(ref('UserSummary')) },
+        404: response('NotFound'),
+        409: response('Conflict'),
+        422: response('ValidationFailed'),
+      },
+    },
+  },
+});
+
+Object.assign(spec.components.parameters, {
+  RoleId: { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+  UserId: { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+  CsrfToken: {
+    name: 'X-CSRF-Token',
+    in: 'header',
+    required: true,
+    description: 'HMAC token returned for the current session. Required with an approved Origin on unsafe protected methods.',
+    schema: { type: 'string' },
+  },
+});
+
+Object.assign(spec.components.responses, {
+  InvalidCredentials: {
+    description: 'Generic sign-in failure (`INVALID_CREDENTIALS`)',
+    content: json(ref('Error'), { error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' } }),
+  },
+  Unauthenticated: {
+    description: 'Missing, expired, revoked or otherwise invalid session (`UNAUTHENTICATED`)',
+    content: json(ref('Error'), { error: { code: 'UNAUTHENTICATED', message: 'Authentication is required' } }),
+  },
+  Forbidden: {
+    description: 'Permission/origin failure (`FORBIDDEN`) or unsafe-request validation failure (`CSRF_FAILED`)',
+    content: json(ref('Error'), {
+      error: { code: 'FORBIDDEN', message: 'You do not have permission to perform this action' },
+    }),
+  },
+  RateLimited: {
+    description: 'Request limit exceeded (`RATE_LIMITED`). `Retry-After` indicates when to retry.',
+    headers: { 'Retry-After': { schema: { type: 'integer' } } },
+    content: json(ref('Error'), {
+      error: { code: 'RATE_LIMITED', message: 'Too many requests. Try again later.' },
+    }),
+  },
+  Conflict: {
+    description: 'A role-management invariant or uniqueness constraint would be violated',
+    content: json(ref('Error')),
+  },
+});
+
+Object.assign(spec.components.schemas, {
+  SignInRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['email', 'password'],
+    properties: {
+      email: { type: 'string', format: 'email', maxLength: 320 },
+      password: { type: 'string', minLength: 1, maxLength: 128, writeOnly: true },
+    },
+  },
+  AuthUser: {
+    type: 'object',
+    required: ['id', 'email', 'displayName'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      email: { type: 'string', format: 'email' },
+      displayName: { type: 'string' },
+    },
+  },
+  ActiveRole: {
+    type: 'object',
+    required: ['id', 'name', 'systemKey'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      name: { type: 'string' },
+      systemKey: { type: ['string', 'null'], enum: ['admin', 'asset_manager', 'viewer', null] },
+    },
+  },
+  AuthSession: {
+    type: 'object',
+    required: ['idleExpiresAt', 'absoluteExpiresAt'],
+    properties: {
+      idleExpiresAt: { type: 'string', format: 'date-time' },
+      absoluteExpiresAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  AuthContext: {
+    type: 'object',
+    required: ['user', 'roles', 'permissions', 'session', 'csrfToken'],
+    properties: {
+      user: ref('AuthUser'),
+      roles: { type: 'array', items: ref('ActiveRole') },
+      permissions: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+      session: ref('AuthSession'),
+      csrfToken: { type: 'string', description: 'Bound to this server-side session; send only in X-CSRF-Token.' },
+    },
+  },
+  Permission: {
+    type: 'object',
+    required: ['key', 'description'],
+    properties: { key: { type: 'string' }, description: { type: 'string' } },
+  },
+  Role: {
+    type: 'object',
+    required: ['id', 'name', 'systemKey', 'isActive', 'permissionKeys', 'assignedUserCount'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      name: { type: 'string' },
+      description: { type: ['string', 'null'] },
+      systemKey: { type: ['string', 'null'], enum: ['admin', 'asset_manager', 'viewer', null] },
+      isActive: { type: 'boolean' },
+      permissionKeys: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+      assignedUserCount: { type: 'integer', minimum: 0 },
+      createdAt: { type: 'string', format: 'date-time' },
+      updatedAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  RoleCreate: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['name', 'permissionKeys'],
+    properties: {
+      name: { type: 'string', minLength: 1, maxLength: 100 },
+      description: { type: ['string', 'null'], maxLength: 500 },
+      permissionKeys: { type: 'array', items: { type: 'string' }, uniqueItems: true, maxItems: 100 },
+    },
+  },
+  RoleUpdate: {
+    allOf: [
+      ref('RoleCreate'),
+      {
+        type: 'object',
+        required: ['isActive'],
+        properties: { isActive: { type: 'boolean' } },
+      },
+    ],
+  },
+  UserRole: {
+    allOf: [
+      ref('ActiveRole'),
+      { type: 'object', required: ['isActive'], properties: { isActive: { type: 'boolean' } } },
+    ],
+  },
+  UserSummary: {
+    type: 'object',
+    required: ['id', 'email', 'displayName', 'isActive', 'roles'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      email: { type: 'string', format: 'email' },
+      displayName: { type: 'string' },
+      isActive: { type: 'boolean' },
+      lockedUntil: { type: ['string', 'null'], format: 'date-time' },
+      lastLoginAt: { type: ['string', 'null'], format: 'date-time' },
+      roles: { type: 'array', items: ref('UserRole') },
+      createdAt: { type: 'string', format: 'date-time' },
+      updatedAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  UserPage: {
+    type: 'object',
+    required: ['items', 'total', 'page', 'pageSize'],
+    properties: {
+      items: { type: 'array', items: ref('UserSummary') },
+      total: { type: 'integer', minimum: 0 },
+      page: { type: 'integer', minimum: 1 },
+      pageSize: { type: 'integer', minimum: 1, maximum: 100 },
+    },
+  },
+  RoleAssignment: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['roleIds'],
+    properties: {
+      roleIds: { type: 'array', items: { type: 'string', format: 'uuid' }, uniqueItems: true, maxItems: 100 },
+    },
+  },
+});
+
+spec.components.securitySchemes = {
+  cookieAuth: {
+    type: 'apiKey',
+    in: 'cookie',
+    name: config.auth.cookie.name,
+    description: 'Opaque 256-bit token. The server stores only its SHA-256 hash; JavaScript cannot read the HttpOnly cookie.',
+  },
+};
+
+spec.paths['/health'].get.security = [];
+
+const requiredPermissions = {
+  'GET /reference-data': ['assets.view'],
+  'GET /assets': ['assets.view'],
+  'POST /assets': ['assets.create'],
+  'GET /assets/{id}': ['assets.view'],
+  'PUT /assets/{id}': ['assets.update'],
+  'DELETE /assets/{id}': ['assets.archive'],
+  'POST /assets/{id}/restore': ['assets.restore'],
+  'POST /exports/assets': ['assets.view', 'exports.run'],
+  'GET /export-profiles': ['exportProfiles.view'],
+  'POST /export-profiles': ['exportProfiles.create'],
+  'GET /export-profiles/{id}': ['exportProfiles.view'],
+  'PUT /export-profiles/{id}': ['exportProfiles.update'],
+  'DELETE /export-profiles/{id}': ['exportProfiles.delete'],
+};
+
+for (const [path, item] of Object.entries(spec.paths)) {
+  for (const method of ['get', 'post', 'put', 'delete', 'patch']) {
+    const operation = item[method];
+    if (!operation) continue;
+    const permissionKeys = requiredPermissions[`${method.toUpperCase()} ${path}`];
+    if (permissionKeys) operation['x-required-permissions'] = permissionKeys;
+    if (operation.security && operation.security.length === 0) continue;
+    operation.responses[401] = operation.responses[401] || response('Unauthenticated');
+    operation.responses[403] = operation.responses[403] || response('Forbidden');
+    operation.responses[429] = operation.responses[429] || response('RateLimited');
+    if (['post', 'put', 'patch', 'delete'].includes(method)) {
+      operation.parameters = [...(operation.parameters || []), { $ref: '#/components/parameters/CsrfToken' }];
+    }
+  }
+}
 
 module.exports = spec;

@@ -1,6 +1,6 @@
 const express = require('express');
 const { asyncHandler, uuidParam } = require('../errors');
-const { currentUser } = require('../middleware/currentUser');
+const { requirePermissions } = require('../middleware/permissions');
 const { parseProfileInput, toProfileDto } = require('../dto/exportProfiles.dto');
 const profiles = require('../../repositories/exportProfiles.repo');
 
@@ -18,10 +18,10 @@ const router = express.Router();
  */
 
 router.param('id', uuidParam('Export profile'));
-router.use(currentUser);
 
 router.get(
   '/',
+  requirePermissions('exportProfiles.view'),
   asyncHandler(async (req, res) => {
     const rows = await profiles.listProfiles(req.user.id);
     res.json(rows.map(toProfileDto));
@@ -30,6 +30,7 @@ router.get(
 
 router.get(
   '/:id',
+  requirePermissions('exportProfiles.view'),
   asyncHandler(async (req, res) => {
     const row = await profiles.findProfile(req.params.id, req.user.id);
     if (!row) throw profiles.profileNotFound();
@@ -39,6 +40,7 @@ router.get(
 
 router.post(
   '/',
+  requirePermissions('exportProfiles.create'),
   asyncHandler(async (req, res) => {
     const input = parseProfileInput(req.body);
     const row = await profiles.createProfile(req.user.id, input);
@@ -48,6 +50,7 @@ router.post(
 
 router.put(
   '/:id',
+  requirePermissions('exportProfiles.update'),
   asyncHandler(async (req, res) => {
     const input = parseProfileInput(req.body);
     const row = await profiles.updateProfile(req.params.id, req.user.id, input);
@@ -57,6 +60,7 @@ router.put(
 
 router.delete(
   '/:id',
+  requirePermissions('exportProfiles.delete'),
   asyncHandler(async (req, res) => {
     await profiles.deleteProfile(req.params.id, req.user.id);
     res.status(204).end();

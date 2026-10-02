@@ -1,0 +1,99 @@
+#!/usr/bin/env node
+
+const readline = require('node:readline/promises');
+const config = require('../config');
+const { pool } = require('../db/pool');
+const { runMigrations } = require('../db/migrate');
+const { provisionUser } = require('../services/provisioning.service');
+
+function usage() {
+  console.log('Usage: npm run user:create -- [--email EMAIL] [--display-name NAME] [--bootstrap-admin]');
+  console.log('The password is always read privately from an interactive TTY.');
+}
+
+function parseArgs(argv) {
+  const options = { bootstrapAdmin: false };
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--bootstrap-admin') options.bootstrapAdmin = true;
+    else if (arg === '--help' || arg === '-h') options.help = true;
+    else if (arg === '--email' || arg === '--display-name') {
+      if (!argv[index + 1]) throw new Error(`${arg} requires a value`);
+      const key = arg === '--email' ? 'email' : 'displayName';
+      options[key] = argv[index + 1];
+      index += 1;
+    } else if (arg.startsWith('--email=')) options.email = arg.slice('--email='.length);
+    else if (arg.startsWith('--display-name=')) options.displayName = arg.slice('--display-name='.length);
+    else throw new Error(`Unknown option: ${arg}`);
+  }
+  return options;
+}
+
+function readHidden(prompt) {
+  return new Promise((resolve, reject) => {
+    const input = process.stdin;
+    const output = process.stdout;
+    let value = '';
+    output.write(prompt);
+    input.setRawMode(true);
+    input.setEncoding('utf8');
+    input.resume();
+
+    function finish(error) {
+      input.off('data', onData);
+      input.setRawMode(false);
+      input.pause();
+      output.write('\n');
+      if (error) reject(error);
+      else resolve(value);
+    }
+
+    function onData(chunk) {
+      for (const character of Array.from(chunk)) {
+        if (character === '\u0003') return finish(new Error('Cancelled'));
+        if (character === '\r' || character === '\n') return finish();
+        if (character === '\u007f' || character === '\b') {
+          value = Array.from(value).slice(0, -1).join('');
+        } else {
+          value += character;
+        }
+      }
+    }
+
+    input.on('data', onData);
+  });
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help) return usage();
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error('User provisioning requires an interactive TTY; passwords are never accepted through arguments or pipes');
+  }
+
+  await runMigrations(config.db);
+
+  const prompt = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    if (!options.email) options.email = await prompt.question('Email: ');
+    if (!options.displayName) options.displayName = await prompt.question('Display name: ');
+  } finally {
+    prompt.close();
+  }
+
+  const password = await readHidden('Password (12-128 characters): ');
+  const confirmation = await readHidden('Confirm password: ');
+  if (password !== confirmation) throw new Error('Passwords do not match');
+
+  const user = await provisionUser({ ...options, password });
+  console.log(`Created ${user.email} (${user.id}) with ${user.roles.length ? 'the System Administrator role' : 'no roles'}.`);
+}
+
+main()
+  .catch((err) => {
+    console.error(err.message);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await pool.end().catch(() => {});
+  });
