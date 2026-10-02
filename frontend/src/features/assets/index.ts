@@ -5,6 +5,7 @@
  * `./store` instead (see that folder's index.ts for why).
  */
 export { InventoryPage } from './pages/InventoryPage'
+export { useReferenceDataQuery, assetKeys } from './api/assets.api'
 export type {
   Asset,
   AssetInput,

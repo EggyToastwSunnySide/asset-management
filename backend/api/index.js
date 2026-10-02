@@ -10,17 +10,22 @@ const router = express.Router();
 const ROUTES = [
   ['/health', require('./routes/health')],
   ['/reference-data', require('./routes/referenceData')],
+  ['/asset-types', require('./routes/assetTypes')],
   ['/assets', require('./routes/assets')],
   ['/export-profiles', require('./routes/exportProfiles')],
   ['/exports', require('./routes/exports')],
 ];
 
 // API documentation: the OpenAPI document and Swagger UI rendering it.
+// Swagger UI fetches the document instead of having it inlined: swagger-ui-express
+// inlines it with String.replace, where a "$`" in a description (e.g. `^[A-Z]+$`)
+// is a substitution pattern that corrupts the script and leaves a blank page.
 router.get('/openapi.json', (req, res) => res.json(openapi));
 router.use(
   '/docs',
   swaggerUi.serve,
-  swaggerUi.setup(openapi, {
+  swaggerUi.setup(null, {
+    swaggerUrl: '../openapi.json', // relative to /api/docs/, so it holds behind the gateway
     customSiteTitle: 'Asset Management API',
     swaggerOptions: { displayRequestDuration: true, tryItOutEnabled: true },
   }),

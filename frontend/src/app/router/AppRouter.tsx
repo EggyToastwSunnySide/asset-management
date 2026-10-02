@@ -8,6 +8,9 @@ const InventoryPage = lazy(() =>
 const ExportProfilesPage = lazy(() =>
   import('@/features/export-profiles').then((m) => ({ default: m.ExportProfilesPage })),
 )
+const AssetTypesPage = lazy(() =>
+  import('@/features/asset-types').then((m) => ({ default: m.AssetTypesPage })),
+)
 
 export function AppRouter() {
   return (
@@ -17,6 +20,7 @@ export function AppRouter() {
           <Route index element={<Navigate to="/inventory" replace />} />
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/export-profiles" element={<ExportProfilesPage />} />
+          <Route path="/asset-types" element={<AssetTypesPage />} />
           <Route path="*" element={<Navigate to="/inventory" replace />} />
         </Route>
       </Routes>

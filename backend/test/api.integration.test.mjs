@@ -363,6 +363,70 @@ describe('asset management API', { skip: skip || false }, () => {
     });
   });
 
+  describe('US17 asset types', () => {
+    test('rejects a duplicate code under fields.code', async () => {
+      const res = await api('POST', '/asset-types', { code: 'LAPTOP', name: 'anything' });
+      assert.equal(res.status, 409);
+      assert.match(res.body.error.fields.code, /LAPTOP/);
+    });
+
+    test('creates a type that then appears in reference data', async () => {
+      const res = await api('POST', '/asset-types', { code: 'TABLET', name: 'Máy tính bảng' });
+      assert.equal(res.status, 201);
+      assert.deepEqual(res.body, { code: 'TABLET', name: 'Máy tính bảng' });
+
+      const ref = await api('GET', '/reference-data');
+      assert.deepEqual(ref.body.types.find((t) => t.code === 'TABLET'), res.body);
+    });
+
+    test('trims both fields and upper-cases the code', async () => {
+      const res = await api('POST', '/asset-types', { code: '  docking_station ', name: ' Dock ' });
+      assert.equal(res.status, 201);
+      assert.deepEqual(res.body, { code: 'DOCKING_STATION', name: 'Dock' });
+    });
+
+    test('rejects a code with characters outside A-Z 0-9 _ -', async () => {
+      const res = await api('POST', '/asset-types', { code: 'BAD CODE!', name: 'Bad' });
+      assert.equal(res.status, 422);
+      assert.equal(res.body.error.code, 'VALIDATION_FAILED');
+      assert.ok(res.body.error.fields.code);
+    });
+
+    test('rejects a duplicate name case-insensitively under fields.name', async () => {
+      assert.equal((await api('POST', '/asset-types', { code: 'PROJECTOR', name: 'Projector' })).status, 201);
+
+      for (const name of ['projector', 'PROJECTOR', '  Projector  ']) {
+        const res = await api('POST', '/asset-types', { code: 'PROJECTOR_2', name });
+        assert.equal(res.status, 409, name);
+        assert.equal(res.body.error.code, 'DUPLICATE_NAME');
+        assert.match(res.body.error.fields.name, /already exists/);
+        assert.equal(res.body.error.fields.code, undefined);
+      }
+    });
+
+    test('rejects a seeded Vietnamese name in a different case', async () => {
+      const res = await api('POST', '/asset-types', { code: 'DESKTOP_2', name: 'MÁY TÍNH ĐỂ BÀN' });
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error.code, 'DUPLICATE_NAME');
+      assert.ok(res.body.error.fields.name);
+    });
+
+    test('rejects a missing, empty or whitespace-only name', async () => {
+      for (const name of [undefined, '', '   ', '\t\n ']) {
+        const res = await api('POST', '/asset-types', { code: 'BLANK', name });
+        assert.equal(res.status, 422, JSON.stringify(name));
+        assert.equal(res.body.error.fields.name, 'Required');
+      }
+    });
+
+    test('rejects a code over 32 and a name over 255 characters', async () => {
+      const res = await api('POST', '/asset-types', { code: 'A'.repeat(33), name: 'n'.repeat(256) });
+      assert.equal(res.status, 422);
+      assert.match(res.body.error.fields.code, /32/);
+      assert.match(res.body.error.fields.name, /255/);
+    });
+  });
+
   test('unknown API routes answer in JSON', async () => {
     const res = await api('GET', '/nope');
     assert.equal(res.status, 404);

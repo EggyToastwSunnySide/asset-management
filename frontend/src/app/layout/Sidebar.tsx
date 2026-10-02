@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Boxes, ChevronLeft, FileOutput } from 'lucide-react'
+import { Boxes, ChevronLeft, FileOutput, Shapes } from 'lucide-react'
 import { useAppDispatch, useAppSelector, toggleSidebar } from '@/app/store'
 import { cn } from '@/utils/cn'
 import styles from './Sidebar.module.css'
@@ -21,6 +21,11 @@ const NAV_ITEMS: NavItem[] = [
     to: '/export-profiles',
     label: 'Export profiles',
     icon: <FileOutput />,
+  },
+  {
+    to: '/asset-types',
+    label: 'Asset types',
+    icon: <Shapes />,
   },
 ]
 
