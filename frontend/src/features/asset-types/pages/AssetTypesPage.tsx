@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { Button, EmptyState, PageHeader, Table } from '@/components/ui'
 import { PermissionGate } from '@/features/auth'
@@ -40,7 +41,9 @@ export function AssetTypesPage() {
           <Table.Body>
             {types.map((type) => (
               <Table.Row key={type.code}>
-                <Table.Cell>{type.code}</Table.Cell>
+                <Table.Cell>
+                  <Link to={`/asset-types/${encodeURIComponent(type.code)}`}>{type.code}</Link>
+                </Table.Cell>
                 <Table.Cell>{type.name}</Table.Cell>
               </Table.Row>
             ))}

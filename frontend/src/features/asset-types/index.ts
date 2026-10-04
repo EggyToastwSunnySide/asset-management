@@ -4,3 +4,4 @@
  * files.
  */
 export { AssetTypesPage } from './pages/AssetTypesPage'
+export { AssetTypeDetailPage } from './pages/AssetTypeDetailPage'

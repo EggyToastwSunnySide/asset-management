@@ -21,6 +21,9 @@ const ExportProfilesPage = lazy(() =>
 const AssetTypesPage = lazy(() =>
   import('@/features/asset-types').then((module) => ({ default: module.AssetTypesPage })),
 )
+const AssetTypeDetailPage = lazy(() =>
+  import('@/features/asset-types').then((module) => ({ default: module.AssetTypeDetailPage })),
+)
 const AccessControlPage = lazy(() =>
   import('@/features/access-control').then((module) => ({ default: module.AccessControlPage })),
 )
@@ -67,6 +70,14 @@ export function AppRouter() {
               element={
                 <RequirePermission permission="assets.view">
                   <AssetTypesPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="/asset-types/:code"
+              element={
+                <RequirePermission permission="assets.view">
+                  <AssetTypeDetailPage />
                 </RequirePermission>
               }
             />

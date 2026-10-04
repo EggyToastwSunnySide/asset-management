@@ -1,0 +1,25 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.error {
+  background: var(--color-status-critical-bg);
+  color: var(--color-status-critical-text);
+  border-radius: var(--md-shape-sm);
+  padding: 10px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.required {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
