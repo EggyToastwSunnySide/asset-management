@@ -883,6 +883,169 @@ describe('asset management API', { skip: skip || false }, () => {
     });
   });
 
+  describe('US18-T6 custom attribute values on assets', () => {
+    const base = '/asset-types/VAL_A/attributes';
+    const valid = { serial: 'SN-1', ram_gb: 16.5, warranty_end: '2027-02-28', docked: false };
+
+    function valAsset(tag, extendedAttributes, overrides = {}) {
+      return asset(tag, { type: 'VAL_A', extendedAttributes, ...overrides });
+    }
+
+    async function createValAsset(tag, extendedAttributes = valid) {
+      const res = await api('POST', '/assets', valAsset(tag, extendedAttributes));
+      assert.equal(res.status, 201, JSON.stringify(res.body));
+      return res.body.id;
+    }
+
+    async function lastUpdate(id) {
+      const { rows } = await pool.query(
+        `SELECT details FROM asset_events WHERE asset_id = $1 AND event_type = 'updated'
+          ORDER BY occurred_at DESC, id DESC LIMIT 1`,
+        [id],
+      );
+      return rows[0].details;
+    }
+
+    // VAL_A has one attribute per data type; serial is required. VAL_B reuses two of
+    // its keys with other definitions, docked hidden, for the type-change rule.
+    before(async () => {
+      assert.equal((await api('POST', '/asset-types', { code: 'VAL_A', name: 'Value test type A' })).status, 201);
+      for (const [key, dataType, isRequired] of [
+        ['serial', 'text', true],
+        ['ram_gb', 'number', false],
+        ['warranty_end', 'date', false],
+        ['docked', 'boolean', false],
+      ]) {
+        assert.equal((await api('POST', base, { key, label: key, dataType, isRequired })).status, 201);
+      }
+      assert.equal((await api('POST', '/asset-types', { code: 'VAL_B', name: 'Value test type B' })).status, 201);
+      for (const key of ['ram_gb', 'docked']) {
+        assert.equal((await api('POST', '/asset-types/VAL_B/attributes', { key, label: key, dataType: 'text' })).status, 201);
+      }
+      assert.equal((await api('DELETE', '/asset-types/VAL_B/attributes/docked')).status, 204);
+    });
+
+    test('saves one valid value per data type and reads it back', async () => {
+      const created = await api('POST', '/assets', valAsset('VAL-001', { ...valid, serial: '  SN-1  ' }));
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+      assert.deepEqual(created.body.extendedAttributes, valid);
+
+      const read = await api('GET', '/assets/' + created.body.id);
+      assert.deepEqual(read.body.extendedAttributes, valid);
+      const listed = await api('GET', '/assets?search=VAL-001');
+      assert.deepEqual(listed.body.items[0].extendedAttributes, valid);
+    });
+
+    test('leaves blank or null optional values unset', async () => {
+      const res = await api('POST', '/assets', valAsset('VAL-002', { serial: 'SN-2', ram_gb: null, warranty_end: '' }));
+      assert.equal(res.status, 201, JSON.stringify(res.body));
+      assert.deepEqual(res.body.extendedAttributes, { serial: 'SN-2' });
+    });
+
+    const badValues = [
+      ['serial', 42, 'Must be a string'],
+      ['serial', 'x'.repeat(2001), 'Must be at most 2000 characters'],
+      ['ram_gb', '16', 'Must be a number'],
+      ['ram_gb', true, 'Must be a number'],
+      ['warranty_end', '2027-02-30', 'Not a real calendar date'],
+      ['warranty_end', '28/02/2027', 'Must be a date as YYYY-MM-DD'],
+      ['warranty_end', 20270228, 'Must be a string'],
+      ['docked', 'true', 'Must be true or false'],
+      ['docked', 0, 'Must be true or false'],
+    ];
+    for (const [key, value, message] of badValues) {
+      test(`rejects ${key} = ${JSON.stringify(value).slice(0, 16)} on extendedAttributes.${key}`, async () => {
+        const res = await api('POST', '/assets', valAsset('VAL-BAD', { ...valid, [key]: value }));
+        assert.equal(res.status, 422);
+        assert.equal(res.body.error.code, 'VALIDATION_FAILED');
+        assert.deepEqual(res.body.error.fields, { ['extendedAttributes.' + key]: message });
+      });
+    }
+
+    test('rejects a bad value on update too, keeping the stored values', async () => {
+      const id = await createValAsset('VAL-003');
+      const res = await api('PUT', '/assets/' + id, valAsset('VAL-003', { ...valid, ram_gb: '32' }));
+      assert.equal(res.status, 422);
+      assert.deepEqual(res.body.error.fields, { 'extendedAttributes.ram_gb': 'Must be a number' });
+      assert.deepEqual((await api('GET', '/assets/' + id)).body.extendedAttributes, valid);
+    });
+
+    test('rejects a key the type does not define, and a non-object', async () => {
+      const unknown = await api('POST', '/assets', valAsset('VAL-BAD', { ...valid, colour: 'red' }));
+      assert.equal(unknown.status, 422);
+      assert.deepEqual(unknown.body.error.fields, { 'extendedAttributes.colour': 'Unknown field' });
+
+      const notObject = await api('POST', '/assets', valAsset('VAL-BAD', ['SN-1']));
+      assert.equal(notObject.status, 422);
+      assert.deepEqual(notObject.body.error.fields, { extendedAttributes: 'Must be an object' });
+    });
+
+    test('requires a required attribute on create', async () => {
+      for (const extendedAttributes of [undefined, {}, { serial: '   ' }, { serial: null }]) {
+        const res = await api('POST', '/assets', valAsset('VAL-BAD', extendedAttributes));
+        assert.equal(res.status, 422, JSON.stringify(extendedAttributes));
+        assert.deepEqual(res.body.error.fields, { 'extendedAttributes.serial': 'Required' });
+      }
+    });
+
+    test('requires a required attribute on every update', async () => {
+      const id = await createValAsset('VAL-004');
+      const { serial, ...rest } = valid;
+      const res = await api('PUT', '/assets/' + id, valAsset('VAL-004', rest, { name: 'Renamed' }));
+      assert.equal(res.status, 422);
+      assert.deepEqual(res.body.error.fields, { 'extendedAttributes.serial': 'Required' });
+      assert.equal((await api('GET', '/assets/' + id)).body.name, 'Asset VAL-004');
+    });
+
+    test('PUT keeps a hidden value: set ram_gb, hide it, rename the asset, restore ram_gb', async () => {
+      const id = await createValAsset('VAL-005');
+      assert.equal((await api('DELETE', base + '/ram_gb')).status, 204);
+
+      const { ram_gb, ...visible } = valid;
+      const res = await api('PUT', '/assets/' + id, valAsset('VAL-005', visible, { name: 'Renamed' }));
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.deepEqual((await lastUpdate(id)).changed, ['name']);
+
+      assert.equal((await api('POST', base + '/ram_gb/restore')).status, 200);
+      const read = await api('GET', '/assets/' + id);
+      assert.equal(read.body.name, 'Renamed');
+      assert.deepEqual(read.body.extendedAttributes, valid);
+    });
+
+    test('ignores a hidden key sent by the client and keeps the stored value', async () => {
+      const id = await createValAsset('VAL-006');
+      assert.equal((await api('DELETE', base + '/ram_gb')).status, 204);
+
+      for (const ramGb of [99, 'not even a number']) {
+        const res = await api('PUT', '/assets/' + id, valAsset('VAL-006', { ...valid, ram_gb: ramGb }));
+        assert.equal(res.status, 200, JSON.stringify(res.body));
+        assert.equal(res.body.extendedAttributes.ram_gb, valid.ram_gb);
+      }
+      const created = await api('POST', '/assets', valAsset('VAL-007', { ...valid, ram_gb: 99 }));
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+      assert.equal('ram_gb' in created.body.extendedAttributes, false);
+
+      assert.equal((await api('POST', base + '/ram_gb/restore')).status, 200);
+    });
+
+    test('a type change validates against the new type and records the dropped values', async () => {
+      const id = await createValAsset('VAL-008');
+
+      const bad = await api('PUT', '/assets/' + id, valAsset('VAL-008', { serial: 'SN-1' }, { type: 'VAL_B' }));
+      assert.equal(bad.status, 422);
+      assert.deepEqual(bad.body.error.fields, { 'extendedAttributes.serial': 'Unknown field' });
+
+      // docked is hidden on VAL_B, yet the old value is not carried over: keys are per type.
+      const res = await api('PUT', '/assets/' + id, valAsset('VAL-008', { ram_gb: '32 GB' }, { type: 'VAL_B' }));
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.deepEqual(res.body.extendedAttributes, { ram_gb: '32 GB' });
+
+      const details = await lastUpdate(id);
+      assert.deepEqual(details.changed, ['type', 'extendedAttributes']);
+      assert.deepEqual(details.droppedAttributes, valid);
+    });
+  });
+
   test('unknown API routes answer in JSON', async () => {
     const res = await api('GET', '/nope');
     assert.equal(res.status, 404);
