@@ -128,6 +128,13 @@ class Checker {
     return raw;
   }
 
+  /** Finite JSON number; unlike `integer`, a numeric string is rejected — JSON bodies only. */
+  number(name) {
+    const raw = this.input[name];
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return this.fail(name, 'Must be a number');
+    return raw;
+  }
+
   /**
    * Nested object validated by `validate(childChecker)`; the child's errors
    * merge into this one. An optional object that is missing is validated as
@@ -174,4 +181,4 @@ function checkQuery(query) {
   return new Checker(query || {});
 }
 
-module.exports = { Checker, checkBody, checkQuery, validationError, isPlainObject };
+module.exports = { Checker, checkBody, checkQuery, validationError, isPlainObject, isBlank };

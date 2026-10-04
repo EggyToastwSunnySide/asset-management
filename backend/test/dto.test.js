@@ -31,6 +31,7 @@ test('create asset: trims strings, upper-cases codes, defaults notes to null', (
     location: 'HQ',
     purchaseDate: '2024-02-14',
     notes: null,
+    extendedAttributes: {},
   });
 });
 

@@ -6,7 +6,7 @@
 
 const { checkBody, checkQuery } = require('../validation');
 
-const ASSET_FIELDS = ['tag', 'name', 'type', 'status', 'location', 'purchaseDate', 'notes'];
+const ASSET_FIELDS = ['tag', 'name', 'type', 'status', 'location', 'purchaseDate', 'notes', 'extendedAttributes'];
 
 /** Columns the list can be sorted by (S-02). `type`/`status`/`location` sort by display name. */
 const SORT_KEYS = ['tag', 'name', 'type', 'status', 'location', 'purchaseDate', 'createdAt', 'updatedAt'];
@@ -31,6 +31,8 @@ function readAssetFields(c, { tagRequired }) {
     location: c.code('location'),
     purchaseDate: c.date('purchaseDate'),
     notes: c.string('notes', { required: false, max: 2000, fallback: null }),
+    // Shape only; the values are checked against the type's attributes when saved (api/attributeValues.js).
+    extendedAttributes: c.object('extendedAttributes', (child) => child.input, { required: false }),
   };
 }
 
@@ -109,6 +111,7 @@ function toAssetDto(row) {
     locationName: row.location_name,
     purchaseDate: row.purchase_date,
     notes: row.notes,
+    extendedAttributes: row.extended_attributes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

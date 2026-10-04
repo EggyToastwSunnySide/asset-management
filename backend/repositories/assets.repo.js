@@ -5,9 +5,11 @@
  * `asset_events` timeline in the same transaction.
  */
 
+const { isDeepStrictEqual } = require('node:util');
 const db = require('../db/pool');
 const { ApiError } = require('../api/errors');
 const { validationError } = require('../api/validation');
+const { validateExtendedAttributes } = require('../api/attributeValues');
 const { resolveAssetCodes } = require('./referenceData.repo');
 
 const SELECT_ASSET = `
@@ -19,6 +21,7 @@ const SELECT_ASSET = `
          l.code AS location, l.name AS location_name,
          a.purchase_date,
          a.notes,
+         a.extended_attributes,
          a.created_at,
          a.updated_at,
          a.asset_type_id, a.asset_status_id, a.location_id
@@ -135,6 +138,20 @@ async function resolveCodesOrThrow(client, input, keep) {
 }
 
 /**
+ * The type's attribute definitions, hidden ones included (US18-T6). FOR SHARE
+ * holds off a concurrent data type change or hide until this save commits, so
+ * the values are stored under the definitions they were checked against.
+ */
+async function attributeDefinitions(client, typeId) {
+  const { rows } = await client.query(
+    `SELECT key, data_type, is_required, is_active FROM asset_type_attributes
+      WHERE asset_type_id = $1 FOR SHARE`,
+    [typeId],
+  );
+  return rows;
+}
+
+/**
  * S-01: "a duplicate is rejected with a clear message". The UNIQUE constraint
  * is the real check (a read-then-insert would race); this only words the
  * error, including the case where a deleted asset still holds the tag
@@ -160,12 +177,19 @@ async function createAsset(input, userId) {
   try {
     return await db.withTransaction(async (client) => {
       const ids = await resolveCodesOrThrow(client, input);
+      const extended = validateExtendedAttributes(
+        input.extendedAttributes,
+        await attributeDefinitions(client, ids.typeId),
+      );
       const { rows } = await client.query(
         `INSERT INTO assets (asset_tag, name, asset_type_id, asset_status_id, purchase_date,
-                             location_id, notes, created_by_user_id, updated_by_user_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+                             location_id, notes, extended_attributes, created_by_user_id, updated_by_user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
          RETURNING id`,
-        [input.tag, input.name, ids.typeId, ids.statusId, input.purchaseDate, ids.locationId, input.notes, userId],
+        [
+          input.tag, input.name, ids.typeId, ids.statusId, input.purchaseDate, ids.locationId, input.notes,
+          JSON.stringify(extended), userId,
+        ],
       );
       const id = rows[0].id;
       await recordEvent(client, id, 'created', userId, `Asset ${input.tag} created`);
@@ -186,7 +210,12 @@ const TRACKED_FIELDS = [
   ['notes', 'notes'],
 ];
 
-/** Full replacement; last write wins (ADR-0004), so there is no version check. */
+/**
+ * Full replacement; last write wins (ADR-0004), so there is no version check.
+ * Custom attribute values are replaced too, except hidden ones, which keep their
+ * stored value. A type change drops every value stored for the old type — keys
+ * are per type — and the 'updated' event records what was dropped.
+ */
 async function updateAsset(id, input, userId) {
   return db.withTransaction(async (client) => {
     const { rows } = await client.query(
@@ -210,19 +239,33 @@ async function updateAsset(id, input, userId) {
       locationId: current.location_id,
     });
 
+    const stored = current.extended_attributes;
+    const typeChanged = ids.typeId !== current.asset_type_id;
+    const extended = validateExtendedAttributes(
+      input.extendedAttributes,
+      await attributeDefinitions(client, ids.typeId),
+      typeChanged ? {} : stored,
+    );
+
     await client.query(
       `UPDATE assets
           SET name = $2, asset_type_id = $3, asset_status_id = $4, purchase_date = $5,
-              location_id = $6, notes = $7, updated_by_user_id = $8
+              location_id = $6, notes = $7, extended_attributes = $8, updated_by_user_id = $9
         WHERE id = $1`,
-      [id, input.name, ids.typeId, ids.statusId, input.purchaseDate, ids.locationId, input.notes, userId],
+      [
+        id, input.name, ids.typeId, ids.statusId, input.purchaseDate, ids.locationId, input.notes,
+        JSON.stringify(extended), userId,
+      ],
     );
 
     const changed = TRACKED_FIELDS.filter(([field, column]) => input[field] !== current[column]).map(
       ([field]) => field,
     );
+    if (!isDeepStrictEqual(extended, stored)) changed.push('extendedAttributes');
+    const details = { changed };
+    if (typeChanged && Object.keys(stored).length) details.droppedAttributes = stored;
     if (changed.length) {
-      await recordEvent(client, id, 'updated', userId, `Asset ${current.tag} updated`, { changed });
+      await recordEvent(client, id, 'updated', userId, `Asset ${current.tag} updated`, details);
     }
 
     return findAsset(id, client);

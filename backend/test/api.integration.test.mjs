@@ -602,9 +602,9 @@ describe('asset management API', { skip: skip || false }, () => {
   describe('US17-T6 assets can use a specialized asset type', () => {
     let created;
 
-    // Extended attributes arrive with US18-T6; until then no asset response carries them.
+    // These assets are saved without custom attribute values (US18-T6).
     function assertNoExtendedAttributes(body) {
-      assert.equal('extendedAttributes' in body, false);
+      assert.deepEqual(body.extendedAttributes, {});
       assert.equal('extended_attributes' in body, false);
     }
 

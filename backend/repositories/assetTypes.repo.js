@@ -106,9 +106,9 @@ const ATTRIBUTE_OF_ACTIVE_TYPE = 'asset_type_id = (SELECT id FROM asset_types WH
  */
 async function updateAttribute(typeCode, key, input) {
   return db.withTransaction(async (client) => {
-    // FOR UPDATE only serializes against other attribute edits. Once asset saves
-    // write values (US18-T6), they should lock these rows FOR SHARE so a value
-    // cannot land between the count below and the data type change.
+    // FOR UPDATE also waits for asset saves, which lock these rows FOR SHARE
+    // (assets.repo.js), so a value cannot land between the count below and the
+    // data type change.
     const { rows } = await client.query(
       `SELECT id, asset_type_id, data_type FROM asset_type_attributes WHERE ${ATTRIBUTE_OF_ACTIVE_TYPE} FOR UPDATE`,
       [typeCode, key],

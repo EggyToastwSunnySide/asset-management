@@ -103,6 +103,7 @@ const exampleAsset = {
   locationName: 'Trụ sở chính',
   purchaseDate: '2024-02-14',
   notes: null,
+  extendedAttributes: { ram_gb: 16, warranty_end: '2027-02-14' },
   createdAt: '2026-09-24T04:47:45.647Z',
   updatedAt: '2026-09-24T04:47:45.647Z',
 };
@@ -427,7 +428,10 @@ const spec = {
         tags: ['Assets'],
         summary: 'Replace an asset (last write wins)',
         description:
-          'Full replacement; no version check (ADR-0004). `tag` may be sent back unchanged but cannot be changed.',
+          'Full replacement; no version check (ADR-0004). `tag` may be sent back unchanged but cannot be changed. ' +
+          '`extendedAttributes` replaces the values of active attributes; hidden attributes keep their stored values ' +
+          'whatever is sent. Changing `type` drops every value stored for the old type (recorded on the ' +
+          '`updated` asset event as `droppedAttributes`) and validates against the new type.',
         requestBody: { required: true, content: json(ref('AssetUpdate')) },
         responses: {
           200: { description: 'Updated', content: json(ref('Asset')) },
@@ -631,7 +635,8 @@ const spec = {
               fields: {
                 type: 'object',
                 additionalProperties: { type: 'string' },
-                description: 'Per-field messages keyed by request path, e.g. `tag`, `filters.type`, `columns[1].key`.',
+                description:
+                  'Per-field messages keyed by request path, e.g. `tag`, `filters.type`, `columns[1].key`, `extendedAttributes.ram_gb`.',
               },
             },
           },
@@ -714,7 +719,10 @@ const spec = {
       },
       Asset: {
         type: 'object',
-        required: ['id', 'tag', 'name', 'type', 'typeName', 'status', 'statusName', 'location', 'locationName', 'purchaseDate'],
+        required: [
+          'id', 'tag', 'name', 'type', 'typeName', 'status', 'statusName', 'location', 'locationName', 'purchaseDate',
+          'extendedAttributes',
+        ],
         properties: {
           id: { type: 'string', format: 'uuid' },
           tag: { type: 'string' },
@@ -727,6 +735,11 @@ const spec = {
           locationName: { type: 'string' },
           purchaseDate: { type: 'string', format: 'date' },
           notes: { type: ['string', 'null'] },
+          extendedAttributes: {
+            type: 'object',
+            additionalProperties: { type: ['string', 'number', 'boolean'] },
+            description: 'Custom attribute values keyed by attribute key, hidden attributes included.',
+          },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
         },
@@ -748,6 +761,18 @@ const spec = {
           location: { ...code, examples: ['HQ'], description: 'Active location code' },
           purchaseDate: { type: 'string', format: 'date', examples: ['2024-02-14'] },
           notes: { type: ['string', 'null'], maxLength: 2000, description: 'Blank is stored as null.' },
+          extendedAttributes: {
+            type: 'object',
+            default: {},
+            additionalProperties: { type: ['string', 'number', 'boolean', 'null'] },
+            examples: [{ ram_gb: 16, warranty_end: '2027-02-14' }],
+            description:
+              'Values for the active custom attributes of the type, keyed by attribute key. By data type: `text` a string ' +
+              'of at most 2000 characters, `number` a JSON number (not a numeric string), `date` a real calendar date ' +
+              'as YYYY-MM-DD, `boolean` true or false. A key the type does not define is rejected; a required ' +
+              'attribute must be present and non-blank; blank or null leaves an optional one unset. Keys of hidden ' +
+              'attributes are ignored. Errors are reported as `fields["extendedAttributes.<key>"]`.',
+          },
         },
       },
       AssetUpdate: {
