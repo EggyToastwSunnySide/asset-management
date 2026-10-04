@@ -27,6 +27,13 @@ CREATE TYPE export_date_format AS ENUM (
   'month_day_year'
 );
 
+CREATE TYPE attribute_data_type AS ENUM (
+  'text',
+  'number',
+  'date',
+  'boolean'
+);
+
 CREATE TABLE fw_users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email citext NOT NULL UNIQUE,
@@ -55,6 +62,25 @@ CREATE TABLE asset_types (
     CHECK (code = upper(btrim(code)) AND code ~ '^[A-Z0-9_-]+$'),
   CONSTRAINT ck_asset_types_name_nonblank
     CHECK (btrim(name) <> '')
+);
+
+CREATE TABLE asset_type_attributes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  asset_type_id uuid NOT NULL,
+  key varchar(32) NOT NULL,
+  label varchar(255) NOT NULL,
+  data_type attribute_data_type NOT NULL,
+  is_required boolean NOT NULL DEFAULT false,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  -- Includes inactive rows on purpose: keys are never reused.
+  CONSTRAINT uq_asset_type_attributes_key
+    UNIQUE (asset_type_id, key),
+  CONSTRAINT ck_asset_type_attributes_key
+    CHECK (key ~ '^[a-z][a-z0-9_]*$'),
+  CONSTRAINT ck_asset_type_attributes_label_nonblank
+    CHECK (btrim(label) <> '')
 );
 
 CREATE TABLE asset_statuses (
@@ -92,6 +118,7 @@ CREATE TABLE assets (
   purchase_date date NOT NULL,
   location_id uuid NOT NULL,
   notes text,
+  extended_attributes jsonb NOT NULL DEFAULT '{}'::jsonb,
   deleted_at timestamptz,
   created_by_user_id uuid NOT NULL,
   updated_by_user_id uuid NOT NULL,
@@ -103,6 +130,8 @@ CREATE TABLE assets (
     CHECK (btrim(name) <> ''),
   CONSTRAINT ck_assets_notes_nonblank
     CHECK (notes IS NULL OR btrim(notes) <> ''),
+  CONSTRAINT ck_assets_extended_attributes_object
+    CHECK (jsonb_typeof(extended_attributes) = 'object'),
   CONSTRAINT ck_assets_deleted_after_created
     CHECK (deleted_at IS NULL OR deleted_at >= created_at)
 );
@@ -180,6 +209,10 @@ CREATE TABLE export_profile_columns (
     CHECK (header_label IS NULL OR btrim(header_label) <> '')
 );
 
+ALTER TABLE asset_type_attributes
+  ADD CONSTRAINT fk_asset_type_attributes_type
+    FOREIGN KEY (asset_type_id) REFERENCES asset_types(id) ON DELETE RESTRICT;
+
 ALTER TABLE assets
   ADD CONSTRAINT fk_assets_type
     FOREIGN KEY (asset_type_id) REFERENCES asset_types(id) ON DELETE RESTRICT,
@@ -213,6 +246,10 @@ ALTER TABLE export_profiles
 ALTER TABLE export_profile_columns
   ADD CONSTRAINT fk_export_profile_columns_profile
     FOREIGN KEY (profile_id) REFERENCES export_profiles(id) ON DELETE CASCADE;
+
+-- lower() rather than citext: needs a UTF8 database so Vietnamese letters fold too.
+CREATE UNIQUE INDEX uq_asset_types_name_ci
+  ON asset_types (lower(name));
 
 CREATE INDEX idx_assets_active_filters
   ON assets (asset_type_id, asset_status_id, location_id)
@@ -272,6 +309,10 @@ CREATE TRIGGER asset_types_set_updated_at
 BEFORE UPDATE ON asset_types
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+CREATE TRIGGER asset_type_attributes_set_updated_at
+BEFORE UPDATE ON asset_type_attributes
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 CREATE TRIGGER asset_statuses_set_updated_at
 BEFORE UPDATE ON asset_statuses
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -308,6 +349,23 @@ $$;
 CREATE TRIGGER assets_asset_tag_immutable
 BEFORE UPDATE OF asset_tag ON assets
 FOR EACH ROW EXECUTE FUNCTION reject_asset_tag_change();
+
+CREATE OR REPLACE FUNCTION reject_attribute_key_change()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.key IS DISTINCT FROM OLD.key THEN
+    RAISE EXCEPTION 'asset_type_attributes.key is immutable; asset values are keyed by it'
+      USING ERRCODE = '23000';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER asset_type_attributes_key_immutable
+BEFORE UPDATE OF key ON asset_type_attributes
+FOR EACH ROW EXECUTE FUNCTION reject_attribute_key_change();
 
 CREATE OR REPLACE FUNCTION reject_asset_hard_delete()
 RETURNS trigger
@@ -427,6 +485,10 @@ COMMENT ON TABLE fw_users IS
   'Minimal local authentication. No full RBAC, sessions, password reset tokens or MFA.';
 COMMENT ON TABLE assets IS
   'Core asset register. Soft delete via deleted_at; asset_tag is case-insensitive, immutable and never reused.';
+COMMENT ON TABLE asset_type_attributes IS
+  'Custom attribute definitions per asset type. key is immutable and never reused; is_active = false hides an attribute but keeps its values.';
+COMMENT ON COLUMN assets.extended_attributes IS
+  'Custom attribute values keyed by asset_type_attributes.key; value types are checked by the API, not the DB.';
 COMMENT ON TABLE asset_loans IS
   'Simple loan history. Partial unique index permits at most one open loan per asset.';
 COMMENT ON TABLE asset_events IS

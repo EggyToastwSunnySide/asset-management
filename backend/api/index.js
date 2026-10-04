@@ -17,6 +17,7 @@ const PUBLIC_ROUTES = [
 const PROTECTED_ROUTES = [
   ['/auth', authRoutes.protectedRouter],
   ['/reference-data', require('./routes/referenceData')],
+  ['/asset-types', require('./routes/assetTypes')],
   ['/assets', require('./routes/assets')],
   ['/export-profiles', require('./routes/exportProfiles')],
   ['/exports', require('./routes/exports')],
@@ -29,13 +30,15 @@ const ROUTES = [...PUBLIC_ROUTES, ...PROTECTED_ROUTES];
 
 router.use(cors);
 
-// API documentation is explicitly public. The document itself declares cookie
-// authentication by default and overrides only the public operations.
+// API documentation is explicitly public. Swagger UI fetches the document
+// instead of inlining it because replacement patterns in descriptions can
+// otherwise corrupt the generated script.
 router.get('/openapi.json', (req, res) => res.json(openapi));
 router.use(
   '/docs',
   swaggerUi.serve,
-  swaggerUi.setup(openapi, {
+  swaggerUi.setup(null, {
+    swaggerUrl: '../openapi.json',
     customSiteTitle: 'Asset Management API',
     swaggerOptions: { displayRequestDuration: true, tryItOutEnabled: true, withCredentials: true },
   }),

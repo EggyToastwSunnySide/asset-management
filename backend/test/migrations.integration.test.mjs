@@ -11,6 +11,7 @@ const { Client } = require('pg');
 const { loadMigrations, runMigrations } = require('../db/migrate');
 
 const DATABASE = process.env.MIGRATION_TEST_DB_NAME || 'asset_management_migration_test';
+const BOOTSTRAP_DATABASE = process.env.BOOTSTRAP_TEST_DB_NAME || 'asset_management_bootstrap_test';
 
 function connectionFor(database) {
   return {
@@ -62,7 +63,7 @@ test('legacy schemas are baselined, backfilled without changing user ids, and se
   await client.connect();
   try {
     const history = await client.query('SELECT version, checksum FROM fw_schema_migrations ORDER BY version');
-    assert.deepEqual(history.rows.map((row) => row.version), [1, 2, 3]);
+    assert.deepEqual(history.rows.map((row) => row.version), [1, 2, 3, 4]);
     assert.ok(history.rows.every((row) => row.checksum.trim().length === 64));
 
     const users = await client.query(
@@ -87,7 +88,56 @@ test('the advisory-locked migration runner is idempotent under concurrent startu
     runMigrations(connectionFor(DATABASE)),
     runMigrations(connectionFor(DATABASE)),
   ]);
-  assert.deepEqual(results, [3, 3, 3]);
+  assert.deepEqual(results, [4, 4, 4]);
+});
+
+test('the Docker bootstrap schema can be baselined and migrated without recreating US-17 objects', { skip: skip || false }, async () => {
+  const admin = new Client(connectionFor('postgres'));
+  await admin.connect();
+  try {
+    await admin.query(`DROP DATABASE IF EXISTS ${BOOTSTRAP_DATABASE} WITH (FORCE)`);
+    await admin.query(`CREATE DATABASE ${BOOTSTRAP_DATABASE}`);
+  } finally {
+    await admin.end();
+  }
+
+  const client = new Client(connectionFor(BOOTSTRAP_DATABASE));
+  try {
+    await client.connect();
+    const initDirectory = path.join(__dirname, '..', 'db', 'init');
+    await client.query(fs.readFileSync(path.join(initDirectory, '001_schema.sql'), 'utf8'));
+    await client.query(fs.readFileSync(path.join(initDirectory, '002_seed.sql'), 'utf8'));
+
+    assert.equal(await runMigrations(connectionFor(BOOTSTRAP_DATABASE)), 4);
+
+    const verify = new Client(connectionFor(BOOTSTRAP_DATABASE));
+    await verify.connect();
+    try {
+      const history = await verify.query('SELECT version FROM fw_schema_migrations ORDER BY version');
+      assert.deepEqual(history.rows.map((row) => row.version), [1, 2, 3, 4]);
+      const schema = await verify.query(
+        `SELECT to_regclass('public.asset_type_attributes') IS NOT NULL AS attributes,
+                EXISTS (
+                  SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = 'public'
+                     AND table_name = 'assets'
+                     AND column_name = 'extended_attributes'
+                ) AS extended_attributes`,
+      );
+      assert.deepEqual(schema.rows[0], { attributes: true, extended_attributes: true });
+    } finally {
+      await verify.end();
+    }
+  } finally {
+    await client.end().catch(() => {});
+    const cleanup = new Client(connectionFor('postgres'));
+    await cleanup.connect();
+    try {
+      await cleanup.query(`DROP DATABASE IF EXISTS ${BOOTSTRAP_DATABASE} WITH (FORCE)`);
+    } finally {
+      await cleanup.end();
+    }
+  }
 });
 
 test('an applied migration checksum mismatch stops startup', { skip: skip || false }, async () => {

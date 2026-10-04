@@ -21,6 +21,7 @@ const {
   DATE_FORMATS,
   DEFAULT_DATE_FORMAT,
 } = require('./dto/exportParams.dto');
+const { ATTRIBUTE_DATA_TYPES } = require('./dto/assetTypes.dto');
 
 const ref = (name) => ({ $ref: `#/components/schemas/${name}` });
 const response = (name) => ({ $ref: `#/components/responses/${name}` });
@@ -33,6 +34,28 @@ const codeList = {
   oneOf: [code, { type: 'array', items: code, maxItems: 50 }],
   description: 'One code or an array of codes.',
 };
+
+// Inlined, not a components $ref: as a path-level $ref, Swagger UI 5 (OAS 3.1) left
+// it unresolved on GET /asset-types/{code}, so `{code}` could not be filled in.
+const assetTypeCodeParameter = {
+  name: 'code',
+  in: 'path',
+  required: true,
+  description: 'Asset type code, case-insensitive',
+  schema: code,
+};
+
+const attributeKeyParameter = {
+  name: 'key',
+  in: 'path',
+  required: true,
+  description: 'Attribute key, matched exactly',
+  schema: { type: 'string', pattern: '^[a-z][a-z0-9_]*$', maxLength: 32, examples: ['screen_size'] },
+};
+
+// US18-T5. Enforcement on asset save arrives with US18-T6.
+const IS_REQUIRED_DESCRIPTION =
+  'Whether assets of this type must have a value. Setting or changing it never rewrites stored values: the rule applies from the next save of an asset, and only while the attribute is active.';
 
 const FILTER_DESCRIPTIONS = {
   type: 'Asset type code',
@@ -121,6 +144,7 @@ const spec = {
   servers: [{ url: '/api' }],
   tags: [
     { name: 'System', description: 'Health and reference data' },
+    { name: 'Asset types', description: 'US17 create asset types' },
     { name: 'Assets', description: 'S-01 create/read/update/delete, S-02 browse' },
     { name: 'Exports', description: 'S-03 Excel export' },
     { name: 'Export profiles', description: 'S-04 saved export settings' },
@@ -144,6 +168,182 @@ const spec = {
         description: 'Active reference rows, for form pickers and filters.',
         responses: {
           200: { description: 'Reference data', content: json(ref('ReferenceData')) },
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
+    '/asset-types': {
+      post: {
+        tags: ['Asset types'],
+        summary: 'Create an asset type',
+        description:
+          '`code` is trimmed and upper-cased, then must match `^[A-Z0-9_-]+$`. The new type is listed by `GET /reference-data`.',
+        requestBody: {
+          required: true,
+          content: json(ref('AssetTypeInput'), { code: 'TABLET', name: 'Máy tính bảng' }),
+        },
+        responses: {
+          201: { description: 'Created', content: json(ref('ReferenceItem'), { code: 'TABLET', name: 'Máy tính bảng' }) },
+          400: response('BadRequest'),
+          409: {
+            description:
+              'Code already in use (`DUPLICATE_CODE`, `fields.code`), or name already in use ignoring case and surrounding spaces (`DUPLICATE_NAME`, `fields.name`).',
+            content: json(ref('Error'), {
+              error: {
+                code: 'DUPLICATE_CODE',
+                message: 'Asset type code "LAPTOP" is already in use.',
+                fields: { code: 'Asset type code "LAPTOP" is already in use.' },
+              },
+            }),
+          },
+          422: response('ValidationFailed'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
+    '/asset-types/{code}': {
+      parameters: [assetTypeCodeParameter],
+      get: {
+        tags: ['Asset types'],
+        summary: 'Read an asset type with its custom attributes',
+        description: 'Attributes are in creation order. Inactive types are not found.',
+        parameters: [{ $ref: '#/components/parameters/IncludeInactive' }],
+        responses: {
+          200: {
+            description: 'The type',
+            content: json(ref('AssetTypeDetail'), {
+              code: 'LAPTOP',
+              name: 'Laptop',
+              attributes: [{ key: 'screen_size', label: 'Screen size', dataType: 'number', isRequired: true, isActive: true }],
+            }),
+          },
+          404: response('NotFound'),
+          422: response('ValidationFailed'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
+    '/asset-types/{code}/attributes': {
+      parameters: [assetTypeCodeParameter],
+      get: {
+        tags: ['Asset types'],
+        summary: "List an asset type's custom attributes",
+        description: 'The `attributes` of `GET /asset-types/{code}`, in creation order.',
+        parameters: [{ $ref: '#/components/parameters/IncludeInactive' }],
+        responses: {
+          200: { description: 'The attributes', content: json({ type: 'array', items: ref('Attribute') }) },
+          404: response('NotFound'),
+          422: response('ValidationFailed'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+      post: {
+        tags: ['Asset types'],
+        summary: 'Add a custom attribute to an asset type',
+        description:
+          '`key` is trimmed, then must match `^[a-z][a-z0-9_]*$`; it is not lower-cased for you. Keys are unique per type and never reused, even after the attribute is hidden. Only active types take new attributes.',
+        requestBody: {
+          required: true,
+          content: json(ref('AttributeInput'), { key: 'screen_size', label: 'Screen size', dataType: 'number', isRequired: true }),
+        },
+        responses: {
+          201: {
+            description: 'Created',
+            content: json(ref('Attribute'), {
+              key: 'screen_size',
+              label: 'Screen size',
+              dataType: 'number',
+              isRequired: true,
+              isActive: true,
+            }),
+          },
+          400: response('BadRequest'),
+          404: response('NotFound'),
+          409: {
+            description: 'Key already used on this type, by an active or a hidden attribute (`DUPLICATE_KEY`, `fields.key`).',
+            content: json(ref('Error'), {
+              error: {
+                code: 'DUPLICATE_KEY',
+                message:
+                  'Attribute key "screen_size" is already used on this asset type, possibly by a hidden attribute. Keys cannot be reused.',
+                fields: {
+                  key: 'Attribute key "screen_size" is already used on this asset type, possibly by a hidden attribute. Keys cannot be reused.',
+                },
+              },
+            }),
+          },
+          422: response('ValidationFailed'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
+    '/asset-types/{code}/attributes/{key}': {
+      parameters: [assetTypeCodeParameter, attributeKeyParameter],
+      put: {
+        tags: ['Asset types'],
+        summary: 'Edit a custom attribute',
+        description: [
+          'Replaces `label`, `dataType` and `isRequired`; hidden attributes can be edited too. The key never changes:',
+          'it may be sent back unchanged, but a different `key` is a 422 under `fields.key`. The data type can only change',
+          'while no asset of this type, deleted ones included, holds a value for the key.',
+          'Changing `isRequired` leaves stored values untouched; the rule applies from the next save of an asset, active attributes only.',
+        ].join(' '),
+        requestBody: {
+          required: true,
+          content: json(ref('AttributeUpdate'), { label: 'Screen size (inches)', dataType: 'number', isRequired: true }),
+        },
+        responses: {
+          200: {
+            description: 'The edited attribute',
+            content: json(ref('Attribute'), {
+              key: 'screen_size',
+              label: 'Screen size (inches)',
+              dataType: 'number',
+              isRequired: true,
+              isActive: true,
+            }),
+          },
+          400: response('BadRequest'),
+          404: response('NotFound'),
+          409: {
+            description: 'Assets of this type hold values for the key, so its data type is locked (`DATA_TYPE_LOCKED`, `fields.dataType`).',
+            content: json(ref('Error'), {
+              error: {
+                code: 'DATA_TYPE_LOCKED',
+                message:
+                  'The data type cannot be changed: 3 assets of this type, deleted ones included, already hold a value for "screen_size".',
+                fields: {
+                  dataType:
+                    'The data type cannot be changed: 3 assets of this type, deleted ones included, already hold a value for "screen_size".',
+                },
+              },
+            }),
+          },
+          422: response('ValidationFailed'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+      delete: {
+        tags: ['Asset types'],
+        summary: 'Hide a custom attribute',
+        description:
+          'Sets `isActive` to false. The attribute and every asset value for it are kept, and its key stays reserved. Hiding a hidden attribute is a no-op.',
+        responses: {
+          204: { description: 'Hidden' },
+          404: response('NotFound'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
+    '/asset-types/{code}/attributes/{key}/restore': {
+      parameters: [assetTypeCodeParameter, attributeKeyParameter],
+      post: {
+        tags: ['Asset types'],
+        summary: 'Restore a hidden custom attribute',
+        description: 'Sets `isActive` back to true; asset values kept while it was hidden show again. Restoring a visible attribute is a no-op.',
+        responses: {
+          200: { description: 'The restored attribute', content: json(ref('Attribute')) },
+          404: response('NotFound'),
           503: response('DatabaseUnavailable'),
         },
       },
@@ -370,6 +570,12 @@ const spec = {
   components: {
     parameters: {
       AssetId: { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+      IncludeInactive: {
+        name: 'includeInactive',
+        in: 'query',
+        description: 'Also return hidden attributes. Only `true` or `false`; any other value is a 422.',
+        schema: { type: 'boolean', default: false },
+      },
       ProfileId: { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
     },
     responses: {
@@ -411,7 +617,15 @@ const spec = {
             properties: {
               code: {
                 type: 'string',
-                examples: ['VALIDATION_FAILED', 'DUPLICATE_TAG', 'DUPLICATE_NAME', 'NOT_FOUND', 'DATABASE_UNAVAILABLE'],
+                examples: [
+                  'VALIDATION_FAILED',
+                  'DUPLICATE_TAG',
+                  'DUPLICATE_CODE',
+                  'DUPLICATE_NAME',
+                  'DUPLICATE_KEY',
+                  'NOT_FOUND',
+                  'DATABASE_UNAVAILABLE',
+                ],
               },
               message: { type: 'string' },
               fields: {
@@ -437,6 +651,57 @@ const spec = {
         type: 'object',
         required: ['code', 'name'],
         properties: { code: { type: 'string', examples: ['LAPTOP'] }, name: { type: 'string' } },
+      },
+      AssetTypeInput: {
+        type: 'object',
+        required: ['code', 'name'],
+        additionalProperties: false,
+        properties: {
+          code: { type: 'string', maxLength: 32, examples: ['TABLET'], description: 'Upper-cased by the server' },
+          name: { type: 'string', maxLength: 255 },
+        },
+      },
+      AttributeInput: {
+        type: 'object',
+        required: ['key', 'label', 'dataType'],
+        additionalProperties: false,
+        properties: {
+          key: { type: 'string', maxLength: 32, pattern: '^[a-z][a-z0-9_]*$', examples: ['screen_size'] },
+          label: { type: 'string', maxLength: 255 },
+          dataType: { type: 'string', enum: ATTRIBUTE_DATA_TYPES },
+          isRequired: { type: 'boolean', default: false, description: IS_REQUIRED_DESCRIPTION },
+        },
+      },
+      AttributeUpdate: {
+        type: 'object',
+        required: ['label', 'dataType', 'isRequired'],
+        additionalProperties: false,
+        properties: {
+          key: { type: 'string', description: 'Optional; when sent it must equal the path `key`' },
+          label: { type: 'string', maxLength: 255 },
+          dataType: { type: 'string', enum: ATTRIBUTE_DATA_TYPES },
+          isRequired: { type: 'boolean', description: IS_REQUIRED_DESCRIPTION },
+        },
+      },
+      Attribute: {
+        type: 'object',
+        required: ['key', 'label', 'dataType', 'isRequired', 'isActive'],
+        properties: {
+          key: { type: 'string' },
+          label: { type: 'string' },
+          dataType: { type: 'string', enum: ATTRIBUTE_DATA_TYPES },
+          isRequired: { type: 'boolean', description: IS_REQUIRED_DESCRIPTION },
+          isActive: { type: 'boolean', description: 'False once hidden; a hidden attribute keeps its key' },
+        },
+      },
+      AssetTypeDetail: {
+        type: 'object',
+        required: ['code', 'name', 'attributes'],
+        properties: {
+          code: { type: 'string', examples: ['LAPTOP'] },
+          name: { type: 'string' },
+          attributes: { type: 'array', items: ref('Attribute') },
+        },
       },
       ReferenceData: {
         type: 'object',
@@ -903,6 +1168,13 @@ spec.paths['/health'].get.security = [];
 
 const requiredPermissions = {
   'GET /reference-data': ['assets.view'],
+  'POST /asset-types': ['assets.view', 'assets.create'],
+  'GET /asset-types/{code}': ['assets.view'],
+  'GET /asset-types/{code}/attributes': ['assets.view'],
+  'POST /asset-types/{code}/attributes': ['assets.view', 'assets.update'],
+  'PUT /asset-types/{code}/attributes/{key}': ['assets.view', 'assets.update'],
+  'DELETE /asset-types/{code}/attributes/{key}': ['assets.view', 'assets.update'],
+  'POST /asset-types/{code}/attributes/{key}/restore': ['assets.view', 'assets.update'],
   'GET /assets': ['assets.view'],
   'POST /assets': ['assets.create'],
   'GET /assets/{id}': ['assets.view'],

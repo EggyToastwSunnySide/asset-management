@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Boxes, ChevronLeft, FileOutput, LogOut, ShieldCheck } from 'lucide-react'
+import { Boxes, ChevronLeft, FileOutput, LogOut, Shapes, ShieldCheck } from 'lucide-react'
 import { useAppDispatch, useAppSelector, toggleSidebar } from '@/app/store'
 import {
   hasAnyPermission,
@@ -32,6 +32,12 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Export profiles',
     icon: <FileOutput />,
     permissions: ['exportProfiles.view'],
+  },
+  {
+    to: '/asset-types',
+    label: 'Asset types',
+    icon: <Shapes />,
+    permissions: ['assets.view'],
   },
   {
     to: '/admin/access',

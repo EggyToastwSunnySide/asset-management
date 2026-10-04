@@ -109,6 +109,19 @@ describe('AppRouter authentication and authorization', () => {
     expect(await screen.findByRole('heading', { name: 'Export profiles' })).toBeInTheDocument()
   })
 
+  it('protects asset types with assets.view and hides creation without assets.create', async () => {
+    server.use(
+      http.get('/api/auth/session', () => HttpResponse.json(sessionFixture(['assets.view']))),
+      http.get('/api/reference-data', () =>
+        HttpResponse.json({ types: [], statuses: [], locations: [] }),
+      ),
+    )
+
+    renderWithProviders(<AppRouter />, { route: '/asset-types' })
+    expect(await screen.findByRole('heading', { name: 'Asset types' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create asset type' })).not.toBeInTheDocument()
+  })
+
   it('gates the access-control route behind roles.view or users.view', async () => {
     server.use(
       http.get('/api/auth/session', () => HttpResponse.json(sessionFixture(['roles.view']))),

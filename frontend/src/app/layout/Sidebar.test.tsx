@@ -17,6 +17,7 @@ describe('Sidebar permission filtering', () => {
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' })
 
     expect(within(nav).getByRole('link', { name: 'Inventory' })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Asset types' })).toBeInTheDocument()
     expect(within(nav).queryByRole('link', { name: 'Export profiles' })).not.toBeInTheDocument()
     expect(within(nav).queryByRole('link', { name: 'Access control' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
@@ -28,6 +29,7 @@ describe('Sidebar permission filtering', () => {
 
     expect(within(nav).getByRole('link', { name: 'Access control' })).toBeInTheDocument()
     expect(within(nav).queryByRole('link', { name: 'Inventory' })).not.toBeInTheDocument()
+    expect(within(nav).queryByRole('link', { name: 'Asset types' })).not.toBeInTheDocument()
   })
 
   it('renders no navigation entries for a session without permissions', () => {
