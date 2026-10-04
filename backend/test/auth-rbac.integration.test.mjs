@@ -359,6 +359,20 @@ describe('US-14 authentication and US-15 RBAC', { skip: skip || false }, () => {
       })).status,
       201,
     );
+
+    // Editing, hiding and restoring need assets.update, which the viewer lacks.
+    const path = '/asset-types/MANAGED_TYPE/attributes/managed_field';
+    for (const [method, url, body] of [
+      ['PUT', path, { label: 'Changed', dataType: 'text', isRequired: true }],
+      ['DELETE', path],
+      ['POST', path + '/restore'],
+    ]) {
+      assert.equal((await viewer.request(method, url, body)).status, 403, `${method} ${url}`);
+    }
+    const unchanged = await manager.request('GET', '/asset-types/MANAGED_TYPE/attributes?includeInactive=true');
+    assert.deepEqual(unchanged.body, [
+      { key: 'managed_field', label: 'Managed field', dataType: 'text', isRequired: false, isActive: true },
+    ]);
   });
 
   test('access APIs expose no password/session secrets and built-in roles are immutable', async () => {

@@ -1046,6 +1046,51 @@ describe('asset management API', { skip: skip || false }, () => {
     });
   });
 
+  describe('US18-T8 required applies on save only, and never to hidden attributes', () => {
+    const base = '/asset-types/T8_A/attributes';
+    let id;
+
+    before(async () => {
+      assert.equal((await api('POST', '/asset-types', { code: 'T8_A', name: 'T8 required type' })).status, 201);
+      assert.equal((await api('POST', base, { key: 'owner', label: 'Owner', dataType: 'text' })).status, 201);
+      const created = await api('POST', '/assets', asset('T8-001', { type: 'T8_A' }));
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+      id = created.body.id;
+    });
+
+    test('turning required on leaves existing assets readable; only the next save needs a value', async () => {
+      const res = await api('PUT', base + '/owner', { label: 'Owner', dataType: 'text', isRequired: true });
+      assert.equal(res.status, 200);
+
+      const read = await api('GET', '/assets/' + id);
+      assert.equal(read.status, 200);
+      assert.deepEqual(read.body.extendedAttributes, {});
+
+      const bad = await api('PUT', '/assets/' + id, asset('T8-001', { type: 'T8_A' }));
+      assert.equal(bad.status, 422);
+      assert.deepEqual(bad.body.error.fields, { 'extendedAttributes.owner': 'Required' });
+
+      const ok = await api('PUT', '/assets/' + id, asset('T8-001', { type: 'T8_A', extendedAttributes: { owner: 'IT' } }));
+      assert.equal(ok.status, 200, JSON.stringify(ok.body));
+      assert.deepEqual(ok.body.extendedAttributes, { owner: 'IT' });
+    });
+
+    test('a hidden required attribute is not required; once restored it is again', async () => {
+      assert.equal((await api('DELETE', base + '/owner')).status, 204);
+
+      const created = await api('POST', '/assets', asset('T8-002', { type: 'T8_A' }));
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+      const updated = await api('PUT', '/assets/' + id, asset('T8-001', { type: 'T8_A', name: 'Renamed' }));
+      assert.equal(updated.status, 200, JSON.stringify(updated.body));
+      assert.deepEqual(updated.body.extendedAttributes, { owner: 'IT' });
+
+      assert.equal((await api('POST', base + '/owner/restore')).status, 200);
+      const bad = await api('POST', '/assets', asset('T8-003', { type: 'T8_A' }));
+      assert.equal(bad.status, 422);
+      assert.deepEqual(bad.body.error.fields, { 'extendedAttributes.owner': 'Required' });
+    });
+  });
+
   test('unknown API routes answer in JSON', async () => {
     const res = await api('GET', '/nope');
     assert.equal(res.status, 404);
