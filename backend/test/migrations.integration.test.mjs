@@ -63,7 +63,7 @@ test('legacy schemas are baselined, backfilled without changing user ids, and se
   await client.connect();
   try {
     const history = await client.query('SELECT version, checksum FROM fw_schema_migrations ORDER BY version');
-    assert.deepEqual(history.rows.map((row) => row.version), [1, 2, 3, 4]);
+    assert.deepEqual(history.rows.map((row) => row.version), [1, 2, 3, 4, 5]);
     assert.ok(history.rows.every((row) => row.checksum.trim().length === 64));
 
     const users = await client.query(
@@ -82,13 +82,66 @@ test('legacy schemas are baselined, backfilled without changing user ids, and se
   }
 });
 
+test('built-in role permissions cannot be moved out of or into a system role', { skip: skip || false }, async () => {
+  const client = new Client(connectionFor(DATABASE));
+  await client.connect();
+  try {
+    const custom = await client.query(
+      `INSERT INTO fw_roles (name, description) VALUES ('Migration guard role', null) RETURNING id`,
+    );
+    const adminPermission = await client.query(
+      `SELECT rp.role_id, rp.permission_key
+         FROM fw_role_permissions rp
+         JOIN fw_roles r ON r.id = rp.role_id
+        WHERE r.system_key = 'admin'
+        ORDER BY rp.permission_key
+        LIMIT 1`,
+    );
+    const { role_id: adminRoleId, permission_key: permissionKey } = adminPermission.rows[0];
+    const customRoleId = custom.rows[0].id;
+
+    await assert.rejects(
+      client.query(
+        `UPDATE fw_role_permissions SET role_id = $1 WHERE role_id = $2 AND permission_key = $3`,
+        [customRoleId, adminRoleId, permissionKey],
+      ),
+      (err) => err.code === '23000',
+    );
+
+    await client.query(
+      `INSERT INTO fw_role_permissions (role_id, permission_key) VALUES ($1, 'assets.view')`,
+      [customRoleId],
+    );
+    await assert.rejects(
+      client.query(
+        `UPDATE fw_role_permissions SET role_id = $1 WHERE role_id = $2 AND permission_key = 'assets.view'`,
+        [adminRoleId, customRoleId],
+      ),
+      (err) => err.code === '23000',
+    );
+
+    const rows = await client.query(
+      `SELECT role_id, permission_key
+         FROM fw_role_permissions
+        WHERE (role_id = $1 AND permission_key = $3)
+           OR (role_id = $2 AND permission_key = 'assets.view')
+        ORDER BY role_id, permission_key`,
+      [adminRoleId, customRoleId, permissionKey],
+    );
+    assert.equal(rows.rows.some((row) => row.role_id === adminRoleId && row.permission_key === permissionKey), true);
+    assert.equal(rows.rows.some((row) => row.role_id === customRoleId && row.permission_key === 'assets.view'), true);
+  } finally {
+    await client.end();
+  }
+});
+
 test('the advisory-locked migration runner is idempotent under concurrent startup', { skip: skip || false }, async () => {
   const results = await Promise.all([
     runMigrations(connectionFor(DATABASE)),
     runMigrations(connectionFor(DATABASE)),
     runMigrations(connectionFor(DATABASE)),
   ]);
-  assert.deepEqual(results, [4, 4, 4]);
+  assert.deepEqual(results, [5, 5, 5]);
 });
 
 test('the Docker bootstrap schema can be baselined and migrated without recreating US-17 objects', { skip: skip || false }, async () => {
@@ -108,13 +161,13 @@ test('the Docker bootstrap schema can be baselined and migrated without recreati
     await client.query(fs.readFileSync(path.join(initDirectory, '001_schema.sql'), 'utf8'));
     await client.query(fs.readFileSync(path.join(initDirectory, '002_seed.sql'), 'utf8'));
 
-    assert.equal(await runMigrations(connectionFor(BOOTSTRAP_DATABASE)), 4);
+    assert.equal(await runMigrations(connectionFor(BOOTSTRAP_DATABASE)), 5);
 
     const verify = new Client(connectionFor(BOOTSTRAP_DATABASE));
     await verify.connect();
     try {
       const history = await verify.query('SELECT version FROM fw_schema_migrations ORDER BY version');
-      assert.deepEqual(history.rows.map((row) => row.version), [1, 2, 3, 4]);
+      assert.deepEqual(history.rows.map((row) => row.version), [1, 2, 3, 4, 5]);
       const schema = await verify.query(
         `SELECT to_regclass('public.asset_type_attributes') IS NOT NULL AS attributes,
                 EXISTS (

@@ -7,7 +7,7 @@
     "dev": "node --watch --env-file-if-exists=.env ./bin/www",
     "db:migrate": "node --env-file-if-exists=.env ./db/migrate-cli.js",
     "user:create": "node --env-file-if-exists=.env ./bin/provision-user",
-    "test": "node --test --test-concurrency=1 \"test/**/*.test.{js,mjs}\""
+    "test": "node --test --test-concurrency=1 test/*.test.js test/*.test.mjs"
   },
   "dependencies": {
     "argon2": "^0.45.1",

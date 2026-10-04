@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Badge, Button, Checkbox, Pagination, SearchField } from '@/components/ui'
+import type { PermissionKey } from '@/features/auth'
 import { describeError } from '@/lib/apiClient'
 import { useDebouncedValue } from '@/utils/useDebouncedValue'
 import {
@@ -7,25 +8,32 @@ import {
   useRolesQuery,
   useUsersQuery,
 } from '../api/accessControl.api'
+import { missingPermissionPrerequisites } from '../permissionPrerequisites'
 import type { AccessUser, Role } from '../types'
 import styles from '../pages/AccessControlPage.module.css'
 
 function AssignmentEditor({
   user,
   roles,
+  actorPermissions,
   onClose,
 }: {
   user: AccessUser
   roles: Role[]
+  actorPermissions: readonly PermissionKey[]
   onClose: () => void
 }) {
   const replaceRoles = useReplaceUserRolesMutation()
   const [roleIds, setRoleIds] = useState<string[]>(() => user.roles.map((role) => role.id))
   const [error, setError] = useState('')
-
-  const hasInactiveAssignment = roleIds.some(
-    (roleId) => roles.find((role) => role.id === roleId)?.isActive === false,
-  )
+  const actorPermissionSet = new Set(actorPermissions)
+  const canDelegate = (role: Role) =>
+    role.permissions.every((permission) => actorPermissionSet.has(permission)) &&
+    missingPermissionPrerequisites(role.permissions).length === 0
+  const invalidAssignments = roleIds
+    .map((roleId) => roles.find((role) => role.id === roleId))
+    .filter((role): role is Role => Boolean(role))
+    .filter((role) => !role.isActive || !canDelegate(role))
 
   async function save() {
     setError('')
@@ -47,20 +55,21 @@ function AssignmentEditor({
         <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
       </div>
       {error && <div className={styles.error} role="alert">{error}</div>}
-      {hasInactiveAssignment && (
+      {invalidAssignments.length > 0 && (
         <div className={styles.notice} role="note">
-          Remove inactive role assignments before saving.
+          Remove inactive roles and roles that grant permissions you do not hold before saving.
         </div>
       )}
       <fieldset className={styles.assignmentRoles} disabled={replaceRoles.isPending}>
         <legend className={styles.visuallyHidden}>Roles for {user.displayName}</legend>
         {roles.map((role) => {
           const checked = roleIds.includes(role.id)
+          const delegable = canDelegate(role)
           return (
             <label key={role.id}>
               <Checkbox
                 checked={checked}
-                disabled={!role.isActive && !checked}
+                disabled={(!role.isActive || !delegable) && !checked}
                 onChange={(event) =>
                   setRoleIds((current) =>
                     event.target.checked
@@ -70,7 +79,11 @@ function AssignmentEditor({
                 }
               />
               <span>
-                <strong>{role.name}{role.isActive ? '' : ' (inactive)'}</strong>
+                <strong>
+                  {role.name}
+                  {role.isActive ? '' : ' (inactive)'}
+                  {delegable ? '' : ' (not delegable)'}
+                </strong>
                 {role.description && <small>{role.description}</small>}
               </span>
             </label>
@@ -82,7 +95,7 @@ function AssignmentEditor({
         <Button
           variant="primary"
           onClick={() => void save()}
-          disabled={replaceRoles.isPending || hasInactiveAssignment}
+          disabled={replaceRoles.isPending || invalidAssignments.length > 0}
         >
           {replaceRoles.isPending ? 'Saving…' : 'Replace roles'}
         </Button>
@@ -94,9 +107,11 @@ function AssignmentEditor({
 export function UserManagement({
   currentUserId,
   canAssign,
+  actorPermissions,
 }: {
   currentUserId: string
   canAssign: boolean
+  actorPermissions: readonly PermissionKey[]
 }) {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
@@ -143,6 +158,7 @@ export function UserManagement({
           key={selectedUser.id}
           user={selectedUser}
           roles={rolesQuery.data}
+          actorPermissions={actorPermissions}
           onClose={() => setSelectedUserId(null)}
         />
       ) : (

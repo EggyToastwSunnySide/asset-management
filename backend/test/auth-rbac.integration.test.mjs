@@ -145,7 +145,7 @@ describe('US-14 authentication and US-15 RBAC', { skip: skip || false }, () => {
 
   test('migrations seed the exact permission catalogue and immutable built-in role matrix', async () => {
     const migrations = await pool.query('SELECT version, length(checksum) AS checksum_length FROM fw_schema_migrations ORDER BY version');
-    assert.deepEqual(migrations.rows.map((row) => row.version), [1, 2, 3]);
+    assert.deepEqual(migrations.rows.map((row) => row.version), [1, 2, 3, 4, 5]);
     assert.ok(migrations.rows.every((row) => row.checksum_length === 64));
 
     const permissions = await pool.query('SELECT permission_key FROM fw_permissions ORDER BY permission_key');
@@ -328,6 +328,39 @@ describe('US-14 authentication and US-15 RBAC', { skip: skip || false }, () => {
     assert.equal((await noRole.request('GET', '/assets')).status, 403);
   });
 
+  test('asset-type reads and mutations use explicit asset permissions', async () => {
+    const viewer = new ApiClient();
+    assert.equal((await viewer.signIn('viewer@example.test', STANDARD_PASSWORD)).status, 200);
+    assert.equal((await viewer.request('GET', '/asset-types/LAPTOP')).status, 200);
+    assert.equal(
+      (await viewer.request('POST', '/asset-types', { code: 'VIEWER_TYPE', name: 'Viewer type' })).status,
+      403,
+    );
+    assert.equal(
+      (await viewer.request('POST', '/asset-types/LAPTOP/attributes', {
+        key: 'viewer_field',
+        label: 'Viewer field',
+        dataType: 'text',
+      })).status,
+      403,
+    );
+
+    const manager = new ApiClient();
+    assert.equal((await manager.signIn('manager@example.test', STANDARD_PASSWORD)).status, 200);
+    assert.equal(
+      (await manager.request('POST', '/asset-types', { code: 'MANAGED_TYPE', name: 'Managed type' })).status,
+      201,
+    );
+    assert.equal(
+      (await manager.request('POST', '/asset-types/MANAGED_TYPE/attributes', {
+        key: 'managed_field',
+        label: 'Managed field',
+        dataType: 'text',
+      })).status,
+      201,
+    );
+  });
+
   test('access APIs expose no password/session secrets and built-in roles are immutable', async () => {
     const permissions = await adminClient.request('GET', '/permissions');
     assert.equal(permissions.status, 200);
@@ -357,7 +390,7 @@ describe('US-14 authentication and US-15 RBAC', { skip: skip || false }, () => {
     const created = await adminClient.request('POST', '/roles', {
       name: 'Asset Creator',
       description: 'Can create assets',
-      permissionKeys: ['assets.create'],
+      permissionKeys: ['assets.view', 'assets.create'],
     });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     customRole = created.body;
@@ -374,6 +407,49 @@ describe('US-14 authentication and US-15 RBAC', { skip: skip || false }, () => {
     assert.deepEqual(signedIn.body.permissions, ['assets.create', 'assets.view']);
     assert.equal((await union.request('GET', '/assets')).status, 200);
     assert.equal((await union.request('POST', '/assets', sampleAsset('UNION-1'))).status, 201);
+  });
+
+  test('custom roles require the view permissions their actions depend on', async () => {
+    const cases = [
+      ['assets.create', ['assets.create'], 'assets.view'],
+      ['assets.update', ['assets.update'], 'assets.view'],
+      ['assets.archive', ['assets.archive'], 'assets.view'],
+      ['assets.restore', ['assets.restore'], 'assets.view'],
+      ['exports.run', ['exports.run'], 'assets.view'],
+      ['exportProfiles.create', ['exportProfiles.create'], 'exportProfiles.view'],
+      ['exportProfiles.update', ['exportProfiles.update'], 'exportProfiles.view'],
+      ['exportProfiles.delete', ['exportProfiles.delete'], 'exportProfiles.view'],
+      ['roles.create', ['roles.create'], 'roles.view'],
+      ['roles.update', ['roles.update'], 'roles.view'],
+      ['roles.assign', ['roles.assign', 'roles.view'], 'users.view'],
+    ];
+
+    for (const [name, permissionKeys, prerequisite] of cases) {
+      const created = await adminClient.request('POST', '/roles', {
+        name: `Invalid ${name}`,
+        description: null,
+        permissionKeys,
+      });
+      assert.equal(created.status, 422, JSON.stringify(created.body));
+      assert.equal(created.body.error.code, 'VALIDATION_FAILED');
+      assert.match(created.body.error.fields.permissionKeys, new RegExp(prerequisite.replace('.', '\\.')));
+    }
+
+    const valid = await adminClient.request('POST', '/roles', {
+      name: 'Prerequisite-complete role',
+      description: null,
+      permissionKeys: ['assets.view', 'assets.create'],
+    });
+    assert.equal(valid.status, 201, JSON.stringify(valid.body));
+
+    const invalidUpdate = await adminClient.request('PUT', `/roles/${valid.body.id}`, {
+      name: valid.body.name,
+      description: null,
+      isActive: true,
+      permissionKeys: ['assets.create'],
+    });
+    assert.equal(invalidUpdate.status, 422);
+    assert.match(invalidUpdate.body.error.fields.permissionKeys, /assets\.view/);
   });
 
   test('role assignment rejects duplicates, unknown/inactive roles and self assignment', async () => {
@@ -411,7 +487,7 @@ describe('US-14 authentication and US-15 RBAC', { skip: skip || false }, () => {
     const assignerRole = await adminClient.request('POST', '/roles', {
       name: 'Limited Assigner',
       description: null,
-      permissionKeys: ['roles.assign'],
+      permissionKeys: ['roles.view', 'users.view', 'roles.assign'],
     });
     await adminClient.request('PUT', `/users/${delegateUser.id}/roles`, { roleIds: [assignerRole.body.id] });
     const delegate = new ApiClient();
@@ -431,7 +507,7 @@ describe('US-14 authentication and US-15 RBAC', { skip: skip || false }, () => {
       name: 'Asset Editor',
       description: 'Updated',
       isActive: true,
-      permissionKeys: ['assets.update'],
+      permissionKeys: ['assets.view', 'assets.update'],
     });
     assert.equal(changed.status, 200, JSON.stringify(changed.body));
     assert.equal((await roleUser.request('GET', '/assets')).status, 401);
@@ -466,10 +542,17 @@ describe('US-14 authentication and US-15 RBAC', { skip: skip || false }, () => {
 
   test('asset export requires both assets.view and exports.run', async () => {
     const exportOnlyUser = await provision('export.only@example.test', 'Export Only');
-    const role = await adminClient.request('POST', '/roles', {
-      name: 'Export Only', description: null, permissionKeys: ['exports.run'],
-    });
-    await adminClient.request('PUT', `/users/${exportOnlyUser.id}/roles`, { roleIds: [role.body.id] });
+    const role = await pool.query(
+      `INSERT INTO fw_roles (name, description) VALUES ('Legacy Export Only', null) RETURNING id`,
+    );
+    await pool.query(
+      `INSERT INTO fw_role_permissions (role_id, permission_key) VALUES ($1, 'exports.run')`,
+      [role.rows[0].id],
+    );
+    await pool.query(
+      `INSERT INTO fw_user_roles (user_id, role_id) VALUES ($1, $2)`,
+      [exportOnlyUser.id, role.rows[0].id],
+    );
     const client = new ApiClient();
     assert.equal((await client.signIn('export.only@example.test', STANDARD_PASSWORD)).status, 200);
     const response = await client.request('POST', '/exports/assets', {});

@@ -10,6 +10,7 @@ import {
   useRolesQuery,
   useUpdateRoleMutation,
 } from '../api/accessControl.api'
+import { missingPermissionPrerequisites } from '../permissionPrerequisites'
 import type { Permission, Role } from '../types'
 import styles from '../pages/AccessControlPage.module.css'
 
@@ -24,12 +25,14 @@ function PermissionGroups({
   permissions,
   selected,
   disabled,
+  canSelect,
   onChange,
 }: {
   permissions: Permission[]
-  selected: string[]
+  selected: Role['permissions']
   disabled: boolean
-  onChange: (keys: string[]) => void
+  canSelect: (key: Permission['key'], checked: boolean) => boolean
+  onChange: (keys: Role['permissions']) => void
 }) {
   const groups = useMemo(() => {
     const grouped = new Map<string, Permission[]>()
@@ -51,6 +54,7 @@ function PermissionGroups({
               <label key={permission.key} className={styles.permissionOption}>
                 <Checkbox
                   checked={checked}
+                  disabled={disabled || !canSelect(permission.key, checked)}
                   onChange={(event) =>
                     onChange(
                       event.target.checked
@@ -91,25 +95,28 @@ function RoleForm({
   const { data: session } = useCurrentSessionQuery()
 
   const heldPermissions = useMemo(() => new Set(session?.permissions ?? []), [session])
-  const availablePermissions = useMemo(
-    () => (permissionsQuery.data ?? []).filter((permission) => heldPermissions.has(permission.key)),
-    [permissionsQuery.data, heldPermissions],
+  const visiblePermissions = useMemo(
+    () =>
+      (permissionsQuery.data ?? []).filter(
+        (permission) => heldPermissions.has(permission.key) || role?.permissions.includes(permission.key),
+      ),
+    [permissionsQuery.data, heldPermissions, role],
   )
-  const unheldRolePermissions = (role?.permissions ?? []).filter((key) => !heldPermissions.has(key))
 
   const immutable = Boolean(role?.isSystem)
-  const blockedByDelegation =
-    !creating && canUpdate && !immutable && unheldRolePermissions.length > 0
-  const editable = creating || (canUpdate && !immutable && !blockedByDelegation)
+  const editable = creating || (canUpdate && !immutable)
   const [name, setName] = useState(role?.name ?? '')
   const [description, setDescription] = useState(role?.description ?? '')
   const [isActive, setIsActive] = useState(role?.isActive ?? true)
-  const [permissionKeys, setPermissionKeys] = useState<string[]>(role?.permissions ?? [])
+  const [permissionKeys, setPermissionKeys] = useState<Role['permissions']>(role?.permissions ?? [])
   const [error, setError] = useState('')
+  const unheldSelected = permissionKeys.filter((key) => !heldPermissions.has(key))
+  const missingPrerequisites = missingPermissionPrerequisites(permissionKeys)
+  const invalidPermissionSet = unheldSelected.length > 0 || missingPrerequisites.length > 0
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!editable || !name.trim()) return
+    if (!editable || !name.trim() || invalidPermissionSet) return
     setError('')
 
     try {
@@ -156,9 +163,17 @@ function RoleForm({
           You can view this role, but you do not have permission to update it.
         </div>
       )}
-      {blockedByDelegation && (
+      {editable && unheldSelected.length > 0 && (
         <div className={styles.notice} role="note">
-          You cannot edit this role because it grants permissions you do not hold.
+          Remove permissions you do not hold before saving: {unheldSelected.join(', ')}.
+        </div>
+      )}
+      {editable && missingPrerequisites.length > 0 && (
+        <div className={styles.notice} role="note">
+          Add required permissions before saving:{' '}
+          {missingPrerequisites
+            .map(({ permission, prerequisite }) => `${permission} requires ${prerequisite}`)
+            .join('; ')}.
         </div>
       )}
       {error && <div className={styles.error} role="alert">{error}</div>}
@@ -195,9 +210,10 @@ function RoleForm({
           <div className={styles.error} role="alert">{describeError(permissionsQuery.error)}</div>
         ) : (
           <PermissionGroups
-            permissions={availablePermissions}
+            permissions={visiblePermissions}
             selected={permissionKeys}
             disabled={!editable || isSaving}
+            canSelect={(key, checked) => checked || heldPermissions.has(key)}
             onChange={setPermissionKeys}
           />
         )}
@@ -210,7 +226,11 @@ function RoleForm({
               Cancel
             </Button>
           )}
-          <Button variant="primary" type="submit" disabled={isSaving || !name.trim()}>
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={isSaving || !name.trim() || invalidPermissionSet}
+          >
             {isSaving ? 'Saving…' : creating ? 'Create role' : 'Save role'}
           </Button>
         </div>

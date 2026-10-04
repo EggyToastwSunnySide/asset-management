@@ -32,6 +32,7 @@ export function AccessControlPage() {
           <UserManagement
             currentUserId={session.user.id}
             canAssign={hasEveryPermission(session, ['roles.view', 'roles.assign'])}
+            actorPermissions={session.permissions}
           />
         )}
       </div>

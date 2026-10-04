@@ -7,6 +7,7 @@ import {
   clearAuthTransportState,
   establishAuthGeneration,
   subscribeToAuthEvents,
+  ApiError,
 } from '@/lib/apiClient'
 import { authKeys, useCurrentSessionQuery, useSignOutMutation } from '../api/auth.api'
 import { firstPermittedRoute, safeInternalPath } from '../permissions'
@@ -83,13 +84,15 @@ export function AuthEventBoundary({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     try {
       await signOutMutation.mutateAsync()
-    } catch {
-      // The cookie may already be expired or the server may be unreachable.
-      // Local identity data still has to be removed immediately.
-    } finally {
       await clearIdentity({ preservePath: false })
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        await clearIdentity({ preservePath: false })
+        return
+      }
+      toast.show('Sign out could not be completed. You are still signed in. Try again.')
     }
-  }, [clearIdentity, signOutMutation])
+  }, [clearIdentity, signOutMutation, toast])
 
   useEffect(() => {
     return subscribeToAuthEvents(() => {

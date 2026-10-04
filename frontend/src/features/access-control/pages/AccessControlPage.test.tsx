@@ -140,8 +140,15 @@ describe('AccessControlPage', () => {
     ).toBeInTheDocument()
   })
 
-  it('blocks editing a role that grants permissions the administrator does not hold', async () => {
+  it('allows a safe reduction of permissions the administrator does not hold', async () => {
     useAccessHandlers()
+    let submitted: { permissionKeys: string[] } | null = null
+    server.use(
+      http.put('/api/roles/role-manager', async ({ request }) => {
+        submitted = (await request.json()) as typeof submitted
+        return HttpResponse.json({ ...managerRole, permissions: submitted!.permissionKeys })
+      }),
+    )
     const queryClient = createTestQueryClient()
     queryClient.setQueryData(authKeys.session(), sessionFixture(['roles.view', 'roles.update']))
 
@@ -152,9 +159,47 @@ describe('AccessControlPage', () => {
 
     await user.click(await screen.findByRole('button', { name: /Asset manager/ }))
     expect(
-      await screen.findByText('You cannot edit this role because it grants permissions you do not hold.'),
+      await screen.findByText(/Remove permissions you do not hold before saving: assets\.view/),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Save role' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save role' })).toBeDisabled()
+
+    await user.click(screen.getByRole('checkbox', { name: /View assets/ }))
+    expect(screen.getByRole('button', { name: 'Save role' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Save role' }))
+    await waitFor(() => expect(submitted).toMatchObject({ permissionKeys: [] }))
+  })
+
+  it('requires prerequisite permissions before a custom role can be created', async () => {
+    useAccessHandlers()
+    server.use(
+      http.get('/api/permissions', () =>
+        HttpResponse.json([
+          { key: 'assets.view', name: 'View assets', description: 'Read inventory records' },
+          { key: 'assets.create', name: 'Create assets', description: 'Create inventory records' },
+          { key: 'roles.view', name: 'View roles', description: 'Read role definitions' },
+        ]),
+      ),
+    )
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(
+      authKeys.session(),
+      sessionFixture(['roles.view', 'roles.create', 'assets.view', 'assets.create']),
+    )
+
+    const { user } = renderWithProviders(<AccessControlPage />, {
+      route: '/admin/access',
+      queryClient,
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'New role' }))
+    await user.type(screen.getByLabelText('Role name'), 'Invalid asset creator')
+    await user.click(screen.getByRole('checkbox', { name: /Create assets/ }))
+
+    expect(await screen.findByText(/assets\.create requires assets\.view/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create role' })).toBeDisabled()
+
+    await user.click(screen.getByRole('checkbox', { name: /View assets/ }))
+    expect(screen.getByRole('button', { name: 'Create role' })).toBeEnabled()
   })
 
   it('shows no role mutation controls to a read-only role viewer', async () => {
@@ -177,6 +222,23 @@ describe('AccessControlPage', () => {
     expect(screen.queryByRole('button', { name: 'Save role' })).not.toBeInTheDocument()
   })
 
+  it('disables roles that grant permissions the administrator cannot delegate', async () => {
+    useAccessHandlers()
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(
+      authKeys.session(),
+      sessionFixture(['roles.view', 'roles.assign', 'users.view']),
+    )
+
+    const { user } = renderWithProviders(<AccessControlPage />, {
+      route: '/admin/access',
+      queryClient,
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Manage roles' }))
+    expect(screen.getByRole('checkbox', { name: /Asset manager.*not delegable/ })).toBeDisabled()
+  })
+
   it('shows server errors while replacing another user roles', async () => {
     useAccessHandlers()
     server.use(
@@ -190,7 +252,7 @@ describe('AccessControlPage', () => {
     const queryClient = createTestQueryClient()
     queryClient.setQueryData(
       authKeys.session(),
-      sessionFixture(['roles.view', 'roles.assign', 'users.view']),
+      sessionFixture(['roles.view', 'roles.assign', 'users.view', 'assets.view']),
     )
 
     const { user } = renderWithProviders(<AccessControlPage />, {
