@@ -35,6 +35,11 @@ services:
     container_name: asset-management-backend
     restart: unless-stopped
     environment:
+      # This stack is the local HTTP entry point (http://localhost:8080), so it
+      # runs in development mode. A real deployment must override NODE_ENV to
+      # production together with a real CSRF_SECRET, COOKIE_SECURE=true and
+      # https ALLOWED_ORIGINS.
+      NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       DB_HOST: db
       DB_PORT: 5432
