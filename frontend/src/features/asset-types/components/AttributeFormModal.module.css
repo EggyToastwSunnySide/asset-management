@@ -17,6 +17,20 @@
   font-family: var(--font-mono);
 }
 
+/* A key that cannot change: filled and with no hover/focus emphasis, but still
+   `readonly` (not `disabled`) so it stays focusable and read aloud. Text keeps
+   full strength: the muted token on this fill is just under 4.5:1. The `.form`
+   prefix beats the Input's own state styles. */
+.form .readOnly,
+.form .readOnly:hover,
+.form .readOnly:focus {
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  border-color: var(--md-outline-variant);
+  box-shadow: none;
+  cursor: default;
+}
+
 .required {
   display: flex;
   align-items: center;

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Button, Checkbox, FormField, Input, Modal, Select } from '@/components/ui'
 import { useToast } from '@/components/ui/Toast'
 import { ApiError, describeError } from '@/lib/apiClient'
+import { cn } from '@/utils/cn'
 import {
   useCreateAttributeMutation,
   useUpdateAttributeMutation,
@@ -137,12 +138,17 @@ export function AttributeFormModal({ typeCode, attribute, onClose }: AttributeFo
         <FormField
           label="Key"
           htmlFor="attr-key"
-          hint={editing ? undefined : 'Lowercase letters, digits and _, starting with a letter. Cannot be changed later.'}
+          hint={
+            editing
+              ? "Keys can't be changed after creation"
+              : 'Lowercase letters, digits and _, starting with a letter. Cannot be changed later.'
+          }
           error={fieldErrors.key}
         >
           <Input
             id="attr-key"
-            className={styles.mono}
+            className={cn(styles.mono, editing && styles.readOnly)}
+            aria-readonly={editing || undefined}
             placeholder="e.g. ram_gb"
             maxLength={KEY_MAX}
             spellCheck={false}

@@ -170,6 +170,25 @@ describe('AssetTypeDetailPage', () => {
     expect(await screen.findByRole('button', { name: 'Hide Warranty end' })).toBeInTheDocument()
   })
 
+  it('marks the key read-only when editing, and editable when adding', async () => {
+    mockApi()
+    const { user } = renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Edit RAM (GB)' }))
+    let dialog = await screen.findByRole('dialog')
+
+    const key = within(dialog).getByLabelText('Key')
+    expect(key).toHaveValue('ram_gb')
+    expect(key).toHaveAttribute('readonly')
+    expect(key).toHaveAttribute('aria-readonly', 'true')
+    expect(key).toHaveAccessibleDescription("Keys can't be changed after creation")
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    await user.click(screen.getByRole('button', { name: 'Add attribute' }))
+    dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('Key')).not.toHaveAttribute('readonly')
+    expect(within(dialog).getByLabelText('Key')).not.toHaveAttribute('aria-readonly')
+  })
+
   it('shows DATA_TYPE_LOCKED under the data type field when editing', async () => {
     mockApi()
     server.use(
