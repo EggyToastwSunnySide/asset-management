@@ -1,7 +1,9 @@
 const express = require('express');
 const { ApiError, asyncHandler, uuidParam } = require('../errors');
 const { requirePermissions } = require('../middleware/permissions');
-const { parseCreateAsset, parseUpdateAsset, parseListQuery, toAssetDto } = require('../dto/assets.dto');
+const {
+  parseCreateAsset, parseUpdateAsset, parseListQuery, toAssetDto, toAssetEventDto,
+} = require('../dto/assets.dto');
 const assets = require('../../repositories/assets.repo');
 
 const router = express.Router();
@@ -13,6 +15,7 @@ const router = express.Router();
  *   GET    /api/assets              ?page&pageSize&sort&direction&search&type&status&location
  *                                   -> 200 { items: Asset[], total, page, pageSize }   (ADR-0003)
  *   GET    /api/assets/:id          -> 200 Asset
+ *   GET    /api/assets/:id/events   -> 200 { items: AssetEvent[] }, oldest first     (US-16)
  *   POST   /api/assets              AssetInput -> 201 Asset | 409 DUPLICATE_TAG       (ADR-0005)
  *   PUT    /api/assets/:id          AssetInput -> 200 Asset                           (ADR-0004, LWW)
  *   DELETE /api/assets/:id          -> 204, sets deleted_at                            (ADR-0002)
@@ -40,6 +43,16 @@ router.get(
     const asset = await assets.findAsset(req.params.id);
     if (!asset) throw new ApiError(404, 'NOT_FOUND', 'Asset not found');
     res.json(toAssetDto(asset));
+  }),
+);
+
+router.get(
+  '/:id/events',
+  requirePermissions('assets.view'),
+  asyncHandler(async (req, res) => {
+    if (!(await assets.findAsset(req.params.id))) throw new ApiError(404, 'NOT_FOUND', 'Asset not found');
+    const events = await assets.listAssetEvents(req.params.id);
+    res.json({ items: events.map(toAssetEventDto) });
   }),
 );
 

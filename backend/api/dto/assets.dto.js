@@ -117,6 +117,18 @@ function toAssetDto(row) {
   };
 }
 
+/** One activity-history entry (US16-AC3): action, acting user and timestamp. */
+function toAssetEventDto(row) {
+  return {
+    id: row.id,
+    type: row.event_type,
+    occurredAt: row.occurred_at,
+    actor: row.actor_id ? { id: row.actor_id, displayName: row.actor_name } : null,
+    description: row.description,
+    details: row.details,
+  };
+}
+
 module.exports = {
   FILTER_FIELDS,
   FILTER_PARAMS,
@@ -130,4 +142,5 @@ module.exports = {
   readFilters,
   readSort,
   toAssetDto,
+  toAssetEventDto,
 };

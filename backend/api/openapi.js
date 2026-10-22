@@ -452,6 +452,24 @@ const spec = {
         },
       },
     },
+    '/assets/{id}/events': {
+      parameters: [{ $ref: '#/components/parameters/AssetId' }],
+      get: {
+        tags: ['Assets'],
+        summary: 'Read an asset activity history',
+        description:
+          'Every recorded event for the asset, oldest first (US-16). Each event is written in the same transaction ' +
+          'as the change it records, and events are append-only.',
+        responses: {
+          200: {
+            description: 'The activity history',
+            content: json({ type: 'object', required: ['items'], properties: { items: { type: 'array', items: ref('AssetEvent') } } }),
+          },
+          404: response('NotFound'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
     '/assets/{id}/restore': {
       parameters: [{ $ref: '#/components/parameters/AssetId' }],
       post: {
@@ -742,6 +760,28 @@ const spec = {
           },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      AssetEvent: {
+        type: 'object',
+        required: ['id', 'type', 'occurredAt', 'actor', 'description', 'details'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          type: {
+            type: 'string',
+            enum: ['created', 'updated', 'archived', 'restored', 'loaned', 'returned', 'replaced'],
+          },
+          occurredAt: { type: 'string', format: 'date-time' },
+          actor: {
+            type: ['object', 'null'],
+            required: ['id', 'displayName'],
+            properties: { id: { type: 'string', format: 'uuid' }, displayName: { type: 'string' } },
+          },
+          description: { type: 'string' },
+          details: {
+            type: 'object',
+            description: 'Type-specific data, e.g. `changed` field names on `updated`.',
+          },
         },
       },
       AssetCreate: {
@@ -1203,6 +1243,7 @@ const requiredPermissions = {
   'GET /assets': ['assets.view'],
   'POST /assets': ['assets.create'],
   'GET /assets/{id}': ['assets.view'],
+  'GET /assets/{id}/events': ['assets.view'],
   'PUT /assets/{id}': ['assets.update'],
   'DELETE /assets/{id}': ['assets.archive'],
   'POST /assets/{id}/restore': ['assets.restore'],

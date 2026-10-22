@@ -119,6 +119,23 @@ async function findAsset(id, client = db) {
   return rows[0] || null;
 }
 
+/**
+ * US16-T3: the asset's activity timeline, oldest first. Rows are append-only
+ * (trigger), so later changes to the asset never rewrite them (US16-AC5).
+ */
+async function listAssetEvents(assetId) {
+  const { rows } = await db.query(
+    `SELECT e.id, e.event_type, e.occurred_at, e.description, e.details,
+            u.id AS actor_id, u.display_name AS actor_name
+       FROM asset_events e
+       LEFT JOIN fw_users u ON u.id = e.actor_user_id
+      WHERE e.asset_id = $1
+      ORDER BY e.occurred_at, e.id`,
+    [assetId],
+  );
+  return rows;
+}
+
 function assetNotFound() {
   return new ApiError(404, 'NOT_FOUND', 'Asset not found');
 }
@@ -309,6 +326,7 @@ module.exports = {
   listAssets,
   listAllAssets,
   findAsset,
+  listAssetEvents,
   createAsset,
   updateAsset,
   softDeleteAsset,
