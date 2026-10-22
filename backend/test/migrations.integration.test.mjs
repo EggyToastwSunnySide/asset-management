@@ -63,7 +63,7 @@ test('legacy schemas are baselined, backfilled without changing user ids, and se
   await client.connect();
   try {
     const history = await client.query('SELECT version, checksum FROM fw_schema_migrations ORDER BY version');
-    assert.deepEqual(history.rows.map((row) => row.version), [1, 2, 3, 4, 5]);
+    assert.deepEqual(history.rows.map((row) => row.version), [1, 2, 3, 4, 5, 6]);
     assert.ok(history.rows.every((row) => row.checksum.trim().length === 64));
 
     const users = await client.query(
@@ -141,7 +141,7 @@ test('the advisory-locked migration runner is idempotent under concurrent startu
     runMigrations(connectionFor(DATABASE)),
     runMigrations(connectionFor(DATABASE)),
   ]);
-  assert.deepEqual(results, [5, 5, 5]);
+  assert.deepEqual(results, [6, 6, 6]);
 });
 
 test('the Docker bootstrap schema can be baselined and migrated without recreating US-17 objects', { skip: skip || false }, async () => {
@@ -161,13 +161,13 @@ test('the Docker bootstrap schema can be baselined and migrated without recreati
     await client.query(fs.readFileSync(path.join(initDirectory, '001_schema.sql'), 'utf8'));
     await client.query(fs.readFileSync(path.join(initDirectory, '002_seed.sql'), 'utf8'));
 
-    assert.equal(await runMigrations(connectionFor(BOOTSTRAP_DATABASE)), 5);
+    assert.equal(await runMigrations(connectionFor(BOOTSTRAP_DATABASE)), 6);
 
     const verify = new Client(connectionFor(BOOTSTRAP_DATABASE));
     await verify.connect();
     try {
       const history = await verify.query('SELECT version FROM fw_schema_migrations ORDER BY version');
-      assert.deepEqual(history.rows.map((row) => row.version), [1, 2, 3, 4, 5]);
+      assert.deepEqual(history.rows.map((row) => row.version), [1, 2, 3, 4, 5, 6]);
       const schema = await verify.query(
         `SELECT to_regclass('public.asset_type_attributes') IS NOT NULL AS attributes,
                 EXISTS (

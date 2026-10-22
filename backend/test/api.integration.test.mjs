@@ -1091,6 +1091,59 @@ describe('asset management API', { skip: skip || false }, () => {
     });
   });
 
+  describe('US-16 asset activity history', () => {
+    let id;
+    let firstFour;
+
+    before(async () => {
+      id = (await api('POST', '/assets', asset('HIST-001'))).body.id;
+      assert.equal((await api('PUT', '/assets/' + id, asset('HIST-001', { name: 'Renamed' }))).status, 200);
+      assert.equal((await api('DELETE', '/assets/' + id)).status, 204);
+      assert.equal((await api('POST', `/assets/${id}/restore`)).status, 200);
+    });
+
+    test('AC1-AC3: lists created, updated, archived and restored oldest first, with actor and time', async () => {
+      const res = await api('GET', `/assets/${id}/events`);
+      assert.equal(res.status, 200);
+      const items = res.body.items;
+      assert.deepEqual(items.map((e) => e.type), ['created', 'updated', 'archived', 'restored']);
+      for (const event of items) {
+        assert.equal(event.actor.displayName, 'Integration Admin');
+        assert.ok(!Number.isNaN(Date.parse(event.occurredAt)), event.occurredAt);
+        assert.ok(event.description);
+      }
+      const times = items.map((e) => Date.parse(e.occurredAt));
+      assert.deepEqual(times, [...times].sort((a, b) => a - b));
+      assert.deepEqual(items[1].details.changed, ['name']);
+      firstFour = items;
+    });
+
+    test('AC4: a failed change records no event', async () => {
+      const bad = await api('PUT', '/assets/' + id, asset('HIST-001', { status: 'NO_SUCH_STATUS' }));
+      assert.equal(bad.status, 422);
+      const res = await api('GET', `/assets/${id}/events`);
+      assert.equal(res.body.items.length, 4);
+    });
+
+    test('AC5: earlier events survive later changes unchanged', async () => {
+      assert.equal((await api('PUT', '/assets/' + id, asset('HIST-001', { name: 'Renamed again' }))).status, 200);
+      const items = (await api('GET', `/assets/${id}/events`)).body.items;
+      assert.equal(items.length, 5);
+      assert.deepEqual(items.slice(0, 4), firstFour);
+      await assert.rejects(
+        pool.query('UPDATE asset_events SET description = $2 WHERE asset_id = $1', [id, 'Rewritten']),
+        /append-only/,
+      );
+    });
+
+    test('404s for an unknown or deleted asset', async () => {
+      assert.equal((await api('GET', '/assets/00000000-0000-4000-8000-000000000000/events')).status, 404);
+      const gone = (await api('POST', '/assets', asset('HIST-002'))).body.id;
+      assert.equal((await api('DELETE', '/assets/' + gone)).status, 204);
+      assert.equal((await api('GET', `/assets/${gone}/events`)).status, 404);
+    });
+  });
+
   test('unknown API routes answer in JSON', async () => {
     const res = await api('GET', '/nope');
     assert.equal(res.status, 404);
