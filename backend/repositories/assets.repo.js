@@ -142,8 +142,9 @@ function assetNotFound() {
 
 function recordEvent(client, assetId, eventType, userId, description, details = {}) {
   return client.query(
-    `INSERT INTO asset_events (asset_id, event_type, actor_user_id, description, details)
-     VALUES ($1, $2, $3, $4, $5)`,
+    // clock_timestamp, not now(): a transaction that waited on a row lock must not sort before the change it waited for.
+    `INSERT INTO asset_events (asset_id, event_type, actor_user_id, description, details, occurred_at)
+     VALUES ($1, $2, $3, $4, $5, clock_timestamp())`,
     [assetId, eventType, userId, description, JSON.stringify(details)],
   );
 }
