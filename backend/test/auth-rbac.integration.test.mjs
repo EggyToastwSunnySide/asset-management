@@ -145,7 +145,7 @@ describe('US-14 authentication and US-15 RBAC', { skip: skip || false }, () => {
 
   test('migrations seed the exact permission catalogue and immutable built-in role matrix', async () => {
     const migrations = await pool.query('SELECT version, length(checksum) AS checksum_length FROM fw_schema_migrations ORDER BY version');
-    assert.deepEqual(migrations.rows.map((row) => row.version), [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(migrations.rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7]);
     assert.ok(migrations.rows.every((row) => row.checksum_length === 64));
 
     const permissions = await pool.query('SELECT permission_key FROM fw_permissions ORDER BY permission_key');
