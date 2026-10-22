@@ -430,6 +430,7 @@ const spec = {
         summary: 'Replace an asset (last write wins)',
         description:
           'Full replacement; no version check (ADR-0004). `tag` may be sent back unchanged but cannot be changed. ' +
+          '`status` cannot be set to or changed from REPLACED here; use POST /assets/{id}/replacement. ' +
           '`extendedAttributes` replaces the values of active attributes; hidden attributes keep their stored values ' +
           'whatever is sent. Changing `type` drops every value stored for the old type (recorded on the ' +
           '`updated` asset event as `droppedAttributes`) and validates against the new type.',

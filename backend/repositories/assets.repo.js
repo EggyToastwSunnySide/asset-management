@@ -192,7 +192,13 @@ function isUniqueViolation(err, constraint) {
   return err.code === '23505' && err.constraint === constraint;
 }
 
+/** BR-05: only replaceAsset sets REPLACED, and nothing clears it, so the relationship and status agree. */
+function rejectReplacedStatus() {
+  return validationError({ status: 'The Replaced status is set only by recording a replacement' });
+}
+
 async function createAsset(input, userId) {
+  if (input.status === REPLACEMENT_RULES.oldAssetResultStatus) throw rejectReplacedStatus();
   try {
     return await db.withTransaction(async (client) => {
       const ids = await resolveCodesOrThrow(client, input);
@@ -251,6 +257,8 @@ async function updateAsset(id, input, userId) {
     if (input.tag !== undefined && input.tag.toLowerCase() !== current.tag.toLowerCase()) {
       throw validationError({ tag: 'The asset tag cannot be changed once created' });
     }
+    const replaced = REPLACEMENT_RULES.oldAssetResultStatus;
+    if ((input.status === replaced) !== (current.status === replaced)) throw rejectReplacedStatus();
 
     const ids = await resolveCodesOrThrow(client, input, {
       typeId: current.asset_type_id,
@@ -362,6 +370,27 @@ async function replaceAsset(oldId, input, userId) {
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, old_asset_id, new_asset_id, replaced_on, reason, created_at`,
       [oldId, replacement.id, input.replacedOn, input.reason, userId],
+    );
+
+    // US13-T5: the old asset's lifecycle status and both histories, in the same transaction.
+    await client.query(
+      `UPDATE assets
+          SET asset_status_id = (SELECT id FROM asset_statuses WHERE code = $2),
+              updated_by_user_id = $3
+        WHERE id = $1`,
+      [oldId, REPLACEMENT_RULES.oldAssetResultStatus, userId],
+    );
+    const details = {
+      replacementId: saved[0].id,
+      oldAssetId: oldId,
+      newAssetId: replacement.id,
+      replacedOn: input.replacedOn,
+      reason: input.reason,
+      previousStatus: old.status,
+    };
+    await recordEvent(client, oldId, 'replaced', userId, `Asset ${old.tag} replaced by ${replacement.tag}`, details);
+    await recordEvent(
+      client, replacement.id, 'replaced', userId, `Asset ${replacement.tag} replaces ${old.tag}`, details,
     );
     return saved[0];
   });

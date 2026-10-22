@@ -45,6 +45,9 @@ export function AssetHistoryDrawer({ asset, onClose }: AssetHistoryDrawerProps) 
                 </time>
               </span>
               <span className={styles.description}>{event.description}</span>
+              {typeof event.details.reason === 'string' && (
+                <span className={styles.description}>Reason: {event.details.reason}</span>
+              )}
             </li>
           ))}
         </ol>
