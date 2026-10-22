@@ -117,6 +117,17 @@ function toAssetDto(row) {
   };
 }
 
+/**
+ * US13-T1 replacement lifecycle rules, kept here only. Not yet agreed by the
+ * team (Sprint 3 plan §1.10 Q2); the PR lists them under "Assumptions to confirm".
+ * The repo has no Broken or Maintenance status yet, so only AVAILABLE old assets qualify.
+ */
+const REPLACEMENT_RULES = Object.freeze({
+  oldAssetStatuses: Object.freeze(['AVAILABLE']),
+  newAssetStatuses: Object.freeze(['AVAILABLE']),
+  oldAssetResultStatus: 'REPLACED',
+});
+
 /** One activity-history entry (US16-AC3): action, acting user and timestamp. */
 function toAssetEventDto(row) {
   return {
@@ -136,6 +147,7 @@ module.exports = {
   DEFAULT_PAGE_SIZE,
   SORT_DIRECTIONS,
   MAX_PAGE_SIZE,
+  REPLACEMENT_RULES,
   parseCreateAsset,
   parseUpdateAsset,
   parseListQuery,
