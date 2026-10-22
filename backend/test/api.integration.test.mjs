@@ -1159,10 +1159,12 @@ describe('asset management API', { skip: skip || false }, () => {
     });
 
     test('AC2: rejects the same asset, and an unknown or deleted replacement, saving nothing', async () => {
-      const same = await replace(ids.old, valid(ids.old));
-      assert.equal(same.status, 422);
-      assert.equal(same.body.error.code, 'VALIDATION_FAILED');
-      assert.match(same.body.error.fields.replacementAssetId, /itself/);
+      for (const [path, body] of [[ids.old, ids.old], [ids.old.toUpperCase(), ids.old]]) {
+        const same = await replace(path, valid(body));
+        assert.equal(same.status, 422);
+        assert.equal(same.body.error.code, 'VALIDATION_FAILED');
+        assert.match(same.body.error.fields.replacementAssetId, /itself/);
+      }
 
       const unknown = await replace(ids.old, valid('00000000-0000-4000-8000-000000000000'));
       assert.equal(unknown.status, 422);

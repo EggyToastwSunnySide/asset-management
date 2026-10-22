@@ -337,7 +337,8 @@ async function restoreAsset(id, userId) {
  * stay locked until commit, so a concurrent edit, borrow or second replacement
  * of either one waits and then sees the new state.
  */
-async function replaceAsset(oldId, input, userId) {
+async function replaceAsset(pathId, input, userId) {
+  const oldId = pathId.toLowerCase(); // ids are compared as strings below; pg returns lower case
   if (input.replacementAssetId === oldId) {
     throw validationError({ replacementAssetId: 'An asset cannot replace itself' });
   }
