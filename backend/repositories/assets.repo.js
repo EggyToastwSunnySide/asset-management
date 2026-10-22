@@ -11,6 +11,7 @@ const { ApiError } = require('../api/errors');
 const { validationError } = require('../api/validation');
 const { validateExtendedAttributes } = require('../api/attributeValues');
 const { resolveAssetCodes } = require('./referenceData.repo');
+const { REPLACEMENT_RULES } = require('../api/dto/assets.dto');
 
 const SELECT_ASSET = `
   SELECT a.id,
@@ -323,6 +324,49 @@ async function restoreAsset(id, userId) {
   });
 }
 
+/**
+ * US-13: records that `input.replacementAssetId` replaces `oldId`. Both assets
+ * stay locked until commit, so a concurrent edit, borrow or second replacement
+ * of either one waits and then sees the new state.
+ */
+async function replaceAsset(oldId, input, userId) {
+  if (input.replacementAssetId === oldId) {
+    throw validationError({ replacementAssetId: 'An asset cannot replace itself' });
+  }
+  return db.withTransaction(async (client) => {
+    // Locked in id order, so two transactions touching the same pair cannot deadlock.
+    const { rows } = await client.query(
+      `${SELECT_ASSET}
+        WHERE a.id = ANY($1::uuid[]) AND a.deleted_at IS NULL
+        ORDER BY a.id
+          FOR UPDATE OF a`,
+      [[oldId, input.replacementAssetId]],
+    );
+    const old = rows.find((row) => row.id === oldId);
+    const replacement = rows.find((row) => row.id === input.replacementAssetId);
+    if (!old) throw assetNotFound();
+    if (!replacement) throw validationError({ replacementAssetId: 'No such asset' });
+
+    const errors = {};
+    if (!REPLACEMENT_RULES.oldAssetStatuses.includes(old.status)) {
+      errors.asset = `${old.tag} cannot be replaced while its status is ${old.status_name}`;
+    }
+    if (!REPLACEMENT_RULES.newAssetStatuses.includes(replacement.status)) {
+      errors.replacementAssetId =
+        `${replacement.tag} cannot be used as a replacement while its status is ${replacement.status_name}`;
+    }
+    if (Object.keys(errors).length) throw validationError(errors);
+
+    const { rows: saved } = await client.query(
+      `INSERT INTO asset_replacements (old_asset_id, new_asset_id, replaced_on, reason, created_by_user_id)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, old_asset_id, new_asset_id, replaced_on, reason, created_at`,
+      [oldId, replacement.id, input.replacedOn, input.reason, userId],
+    );
+    return saved[0];
+  });
+}
+
 module.exports = {
   listAssets,
   listAllAssets,
@@ -332,4 +376,5 @@ module.exports = {
   updateAsset,
   softDeleteAsset,
   restoreAsset,
+  replaceAsset,
 };

@@ -93,4 +93,4 @@ function errorHandler(err, req, res, next) {
   res.status(apiError.status).json({ error: body });
 }
 
-module.exports = { ApiError, asyncHandler, uuidParam, notFound, errorHandler };
+module.exports = { ApiError, UUID, asyncHandler, uuidParam, notFound, errorHandler };

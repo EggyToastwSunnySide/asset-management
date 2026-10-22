@@ -2,7 +2,8 @@ const express = require('express');
 const { ApiError, asyncHandler, uuidParam } = require('../errors');
 const { requirePermissions } = require('../middleware/permissions');
 const {
-  parseCreateAsset, parseUpdateAsset, parseListQuery, toAssetDto, toAssetEventDto,
+  parseCreateAsset, parseUpdateAsset, parseListQuery, parseReplacement, toAssetDto, toAssetEventDto,
+  toReplacementDto,
 } = require('../dto/assets.dto');
 const assets = require('../../repositories/assets.repo');
 
@@ -20,6 +21,7 @@ const router = express.Router();
  *   PUT    /api/assets/:id          AssetInput -> 200 Asset                           (ADR-0004, LWW)
  *   DELETE /api/assets/:id          -> 204, sets deleted_at                            (ADR-0002)
  *   POST   /api/assets/:id/restore  -> 200 Asset, clears deleted_at
+ *   POST   /api/assets/:id/replacement  ReplacementInput -> 201 Replacement           (US-13)
  *
  * Deleted assets are invisible to every read: they 404 by id and never list.
  */
@@ -91,6 +93,16 @@ router.post(
   asyncHandler(async (req, res) => {
     const asset = await assets.restoreAsset(req.params.id, req.user.id);
     res.json(toAssetDto(asset));
+  }),
+);
+
+router.post(
+  '/:id/replacement',
+  requirePermissions('assets.update'),
+  asyncHandler(async (req, res) => {
+    const input = parseReplacement(req.body);
+    const replacement = await assets.replaceAsset(req.params.id, input, req.user.id);
+    res.status(201).json(toReplacementDto(replacement));
   }),
 );
 

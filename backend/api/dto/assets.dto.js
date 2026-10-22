@@ -5,6 +5,7 @@
  */
 
 const { checkBody, checkQuery } = require('../validation');
+const { UUID } = require('../errors');
 
 const ASSET_FIELDS = ['tag', 'name', 'type', 'status', 'location', 'purchaseDate', 'notes', 'extendedAttributes'];
 
@@ -128,6 +129,32 @@ const REPLACEMENT_RULES = Object.freeze({
   oldAssetResultStatus: 'REPLACED',
 });
 
+/** POST /api/assets/:id/replacement body (US13-T4); the asset at :id is the old one. */
+function parseReplacement(body) {
+  const c = checkBody(body, ['replacementAssetId', 'replacedOn', 'reason']);
+  const replacementAssetId = c.string('replacementAssetId', {
+    max: 36,
+    pattern: UUID,
+    patternMessage: 'Must be an asset id',
+  });
+  return c.done({
+    replacementAssetId: replacementAssetId && replacementAssetId.toLowerCase(),
+    replacedOn: c.date('replacedOn'),
+    reason: c.string('reason', { max: 2000 }),
+  });
+}
+
+function toReplacementDto(row) {
+  return {
+    id: row.id,
+    oldAssetId: row.old_asset_id,
+    newAssetId: row.new_asset_id,
+    replacedOn: row.replaced_on,
+    reason: row.reason,
+    createdAt: row.created_at,
+  };
+}
+
 /** One activity-history entry (US16-AC3): action, acting user and timestamp. */
 function toAssetEventDto(row) {
   return {
@@ -151,8 +178,10 @@ module.exports = {
   parseCreateAsset,
   parseUpdateAsset,
   parseListQuery,
+  parseReplacement,
   readFilters,
   readSort,
   toAssetDto,
   toAssetEventDto,
+  toReplacementDto,
 };

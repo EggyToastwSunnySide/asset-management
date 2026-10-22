@@ -14,6 +14,7 @@ const {
   MAX_PAGE_SIZE,
   DEFAULT_PAGE_SIZE,
   FILTER_FIELDS,
+  REPLACEMENT_RULES,
 } = require('./dto/assets.dto');
 const {
   EXPORT_FIELDS,
@@ -470,6 +471,28 @@ const spec = {
         },
       },
     },
+    '/assets/{id}/replacement': {
+      parameters: [{ $ref: '#/components/parameters/AssetId' }],
+      post: {
+        tags: ['Assets'],
+        summary: 'Record that another asset replaces this one',
+        description: [
+          `The asset in the path is the old one. Both assets must exist, differ and not be deleted. The old asset must`,
+          `have status ${REPLACEMENT_RULES.oldAssetStatuses.join(' or ')} and the replacement`,
+          `${REPLACEMENT_RULES.newAssetStatuses.join(' or ')} (otherwise 422, \`fields.asset\` or`,
+          `\`fields.replacementAssetId\`). In one transaction the relationship is saved, the old asset becomes`,
+          `${REPLACEMENT_RULES.oldAssetResultStatus} and a \`replaced\` event is added to both assets' histories.`,
+        ].join(' '),
+        requestBody: { required: true, content: json(ref('ReplacementInput')) },
+        responses: {
+          201: { description: 'The saved replacement', content: json(ref('Replacement')) },
+          400: response('BadRequest'),
+          404: response('NotFound'),
+          422: response('ValidationFailed'),
+          503: response('DatabaseUnavailable'),
+        },
+      },
+    },
     '/assets/{id}/restore': {
       parameters: [{ $ref: '#/components/parameters/AssetId' }],
       post: {
@@ -760,6 +783,28 @@ const spec = {
           },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      ReplacementInput: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['replacementAssetId', 'replacedOn', 'reason'],
+        properties: {
+          replacementAssetId: { type: 'string', format: 'uuid' },
+          replacedOn: { type: 'string', format: 'date', examples: ['2026-10-20'] },
+          reason: { type: 'string', minLength: 1, maxLength: 2000 },
+        },
+      },
+      Replacement: {
+        type: 'object',
+        required: ['id', 'oldAssetId', 'newAssetId', 'replacedOn', 'reason', 'createdAt'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          oldAssetId: { type: 'string', format: 'uuid' },
+          newAssetId: { type: 'string', format: 'uuid' },
+          replacedOn: { type: 'string', format: 'date' },
+          reason: { type: 'string' },
+          createdAt: { type: 'string', format: 'date-time' },
         },
       },
       AssetEvent: {
@@ -1247,6 +1292,7 @@ const requiredPermissions = {
   'PUT /assets/{id}': ['assets.update'],
   'DELETE /assets/{id}': ['assets.archive'],
   'POST /assets/{id}/restore': ['assets.restore'],
+  'POST /assets/{id}/replacement': ['assets.update'],
   'POST /exports/assets': ['assets.view', 'exports.run'],
   'GET /export-profiles': ['exportProfiles.view'],
   'POST /export-profiles': ['exportProfiles.create'],
