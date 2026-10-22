@@ -396,6 +396,22 @@ describe('US-14 authentication and US-15 RBAC', { skip: skip || false }, () => {
     assert.equal((await new ApiClient().request('GET', path)).status, 401);
   });
 
+  test('US13-AC1: recording a replacement needs assets.update on the API', async () => {
+    const manager = new ApiClient();
+    assert.equal((await manager.signIn('manager@example.test', STANDARD_PASSWORD)).status, 200);
+    const oldId = (await manager.request('POST', '/assets', sampleAsset('REPLACE-RBAC-OLD'))).body.id;
+    const newId = (await manager.request('POST', '/assets', sampleAsset('REPLACE-RBAC-NEW'))).body.id;
+    const body = { replacementAssetId: newId, replacedOn: '2026-10-20', reason: 'Upgrade' };
+
+    const viewer = new ApiClient();
+    assert.equal((await viewer.signIn('viewer@example.test', STANDARD_PASSWORD)).status, 200);
+    const denied = await viewer.request('POST', `/assets/${oldId}/replacement`, body);
+    assert.equal(denied.status, 403);
+    assert.equal((await manager.request('GET', '/assets/' + oldId)).body.status, 'AVAILABLE');
+
+    assert.equal((await manager.request('POST', `/assets/${oldId}/replacement`, body)).status, 201);
+  });
+
   test('access APIs expose no password/session secrets and built-in roles are immutable', async () => {
     const permissions = await adminClient.request('GET', '/permissions');
     assert.equal(permissions.status, 200);
