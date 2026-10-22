@@ -41,6 +41,13 @@ export interface AssetEvent {
   details: Record<string, unknown>
 }
 
+/** POST /api/assets/:id/replacement body (US-13): the asset at :id is the old one. */
+export interface ReplacementInput {
+  replacementAssetId: string
+  replacedOn: string // ISO yyyy-mm-dd
+  reason: string
+}
+
 /**
  * Create/update payload. PUT replaces the whole asset (ADR-0004), so an edit
  * sends `notes` back even though the form does not show it. `tag` cannot

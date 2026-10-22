@@ -1,6 +1,13 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient, type Page } from '@/lib/apiClient'
-import type { Asset, AssetEvent, AssetInput, AssetListParams, ReferenceData } from '../types'
+import type {
+  Asset,
+  AssetEvent,
+  AssetInput,
+  AssetListParams,
+  ReferenceData,
+  ReplacementInput,
+} from '../types'
 
 // ---------------------------------------------------------------------------
 // Backend calls. Contract: backend/api/routes/assets.js, browsable at /api/docs.
@@ -22,6 +29,10 @@ const updateAsset = (id: string, input: AssetInput) =>
 const deleteAsset = (id: string) => apiClient.delete(`/assets/${encodeURIComponent(id)}`)
 
 const restoreAsset = (id: string) => apiClient.post<Asset>(`/assets/${encodeURIComponent(id)}/restore`)
+
+/** Records that `replacementAssetId` replaces the asset `id` (US-13). */
+const replaceAsset = (id: string, input: ReplacementInput) =>
+  apiClient.post(`/assets/${encodeURIComponent(id)}/replacement`, input)
 
 /** Activity history, oldest first (US-16). */
 const fetchAssetEvents = (id: string) =>
@@ -52,6 +63,15 @@ export function useAssetsQuery(params: AssetListParams) {
     // Keep showing the current page while the next one loads, instead of
     // flashing the loading state on every page, sort or filter change.
     placeholderData: keepPreviousData,
+  })
+}
+
+export function useReplaceAssetMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: ReplacementInput }) => replaceAsset(id, input),
+    // The old asset's status and both assets' histories change.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: assetKeys.all }),
   })
 }
 

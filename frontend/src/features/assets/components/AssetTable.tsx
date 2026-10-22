@@ -51,6 +51,7 @@ export interface AssetTableProps {
   onEdit: (asset: Asset) => void
   onDelete: (asset: Asset) => void
   onHistory: (asset: Asset) => void
+  onReplace: (asset: Asset) => void
   canEdit: boolean
   canArchive: boolean
 }
@@ -68,6 +69,7 @@ export function AssetTable({
   onEdit,
   onDelete,
   onHistory,
+  onReplace,
   canEdit,
   canArchive,
 }: AssetTableProps) {
@@ -186,7 +188,12 @@ export function AssetTable({
                         }
                         items={[
                           { label: 'History', onSelect: () => onHistory(asset) },
-                          ...(canEdit ? [{ label: 'Edit', onSelect: () => onEdit(asset) }] : []),
+                          ...(canEdit
+                            ? [
+                                { label: 'Edit', onSelect: () => onEdit(asset) },
+                                { label: 'Replace', onSelect: () => onReplace(asset) },
+                              ]
+                            : []),
                           ...(canArchive
                             ? [{ label: 'Archive', danger: true, onSelect: () => onDelete(asset) }]
                             : []),
