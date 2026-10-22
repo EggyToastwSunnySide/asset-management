@@ -1,0 +1,26 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--md-outline-variant);
+}
+
+.action {
+  font-weight: 600;
+}
+
+.meta,
+.description {
+  color: var(--md-on-surface-variant);
+  font-size: var(--font-size-sm);
+}

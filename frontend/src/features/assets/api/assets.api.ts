@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient, type Page } from '@/lib/apiClient'
-import type { Asset, AssetInput, AssetListParams, ReferenceData } from '../types'
+import type { Asset, AssetEvent, AssetInput, AssetListParams, ReferenceData } from '../types'
 
 // ---------------------------------------------------------------------------
 // Backend calls. Contract: backend/api/routes/assets.js, browsable at /api/docs.
@@ -23,6 +23,10 @@ const deleteAsset = (id: string) => apiClient.delete(`/assets/${encodeURICompone
 
 const restoreAsset = (id: string) => apiClient.post<Asset>(`/assets/${encodeURIComponent(id)}/restore`)
 
+/** Activity history, oldest first (US-16). */
+const fetchAssetEvents = (id: string) =>
+  apiClient.get<{ items: AssetEvent[] }>(`/assets/${encodeURIComponent(id)}/events`)
+
 const fetchReferenceData = () => apiClient.get<ReferenceData>('/reference-data')
 
 // ---------------------------------------------------------------------------
@@ -33,6 +37,7 @@ export const assetKeys = {
   all: ['assets'] as const,
   lists: () => [...assetKeys.all, 'list'] as const,
   list: (params: AssetListParams) => [...assetKeys.lists(), params] as const,
+  events: (id: string) => [...assetKeys.all, 'events', id] as const,
   referenceData: () => ['reference-data'] as const,
 }
 
@@ -47,6 +52,14 @@ export function useAssetsQuery(params: AssetListParams) {
     // Keep showing the current page while the next one loads, instead of
     // flashing the loading state on every page, sort or filter change.
     placeholderData: keepPreviousData,
+  })
+}
+
+export function useAssetEventsQuery(id: string) {
+  return useQuery({
+    queryKey: assetKeys.events(id),
+    queryFn: () => fetchAssetEvents(id),
+    select: (data) => data.items,
   })
 }
 

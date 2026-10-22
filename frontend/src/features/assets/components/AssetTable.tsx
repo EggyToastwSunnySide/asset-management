@@ -50,6 +50,7 @@ export interface AssetTableProps {
   isError: boolean
   onEdit: (asset: Asset) => void
   onDelete: (asset: Asset) => void
+  onHistory: (asset: Asset) => void
   canEdit: boolean
   canArchive: boolean
 }
@@ -66,6 +67,7 @@ export function AssetTable({
   isError,
   onEdit,
   onDelete,
+  onHistory,
   canEdit,
   canArchive,
 }: AssetTableProps) {
@@ -172,24 +174,24 @@ export function AssetTable({
                       {formatDateDisplay(asset.purchaseDate)}
                     </Table.Cell>
                     <Table.Cell style={{ textAlign: 'right' }}>
-                      {(canEdit || canArchive) && (
-                        <Menu
-                          triggerLabel={`More actions for ${asset.tag}`}
-                          trigger={
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                              <circle cx="5" cy="12" r="1.8" />
-                              <circle cx="12" cy="12" r="1.8" />
-                              <circle cx="19" cy="12" r="1.8" />
-                            </svg>
-                          }
-                          items={[
-                            ...(canEdit ? [{ label: 'Edit', onSelect: () => onEdit(asset) }] : []),
-                            ...(canArchive
-                              ? [{ label: 'Archive', danger: true, onSelect: () => onDelete(asset) }]
-                              : []),
-                          ]}
-                        />
-                      )}
+                      {/* History needs only assets.view, which this page already requires. */}
+                      <Menu
+                        triggerLabel={`More actions for ${asset.tag}`}
+                        trigger={
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="5" cy="12" r="1.8" />
+                            <circle cx="12" cy="12" r="1.8" />
+                            <circle cx="19" cy="12" r="1.8" />
+                          </svg>
+                        }
+                        items={[
+                          { label: 'History', onSelect: () => onHistory(asset) },
+                          ...(canEdit ? [{ label: 'Edit', onSelect: () => onEdit(asset) }] : []),
+                          ...(canArchive
+                            ? [{ label: 'Archive', danger: true, onSelect: () => onDelete(asset) }]
+                            : []),
+                        ]}
+                      />
                     </Table.Cell>
                   </Table.Row>
                 )

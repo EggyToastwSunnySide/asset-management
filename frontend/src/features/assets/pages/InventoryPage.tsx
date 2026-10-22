@@ -12,6 +12,7 @@ import { useAssetPage } from '../hooks/useAssetPage'
 import { useListUrlSync } from '../hooks/useListUrlSync'
 import type { Asset } from '../types'
 import { AssetFormModal } from '../components/AssetFormModal'
+import { AssetHistoryDrawer } from '../components/AssetHistoryDrawer'
 import { AssetTable } from '../components/AssetTable'
 import { AssetToolbar } from '../components/AssetToolbar'
 
@@ -47,6 +48,7 @@ function InventoryView() {
   const [formAsset, setFormAsset] = useState<Asset | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const [historyAsset, setHistoryAsset] = useState<Asset | null>(null)
 
   function handleAdd() {
     setFormAsset(null)
@@ -101,12 +103,16 @@ function InventoryView() {
         isError={assetPage.isError}
         onEdit={handleEdit}
         onDelete={handleDelete}
+        onHistory={setHistoryAsset}
         canEdit={canUpdate}
         canArchive={canArchive}
       />
 
       {formOpen && (formAsset ? canUpdate : canCreate) && (
         <AssetFormModal open asset={formAsset} onClose={() => setFormOpen(false)} />
+      )}
+      {historyAsset && (
+        <AssetHistoryDrawer asset={historyAsset} onClose={() => setHistoryAsset(null)} />
       )}
       {canExport && (
         <ExportModal

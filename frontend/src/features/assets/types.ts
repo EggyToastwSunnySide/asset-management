@@ -30,6 +30,17 @@ export interface Asset {
   notes: string | null
 }
 
+/** One activity-history entry (US-16), from GET /api/assets/:id/events. */
+export interface AssetEvent {
+  id: string
+  type: 'created' | 'updated' | 'archived' | 'restored' | 'loaned' | 'returned' | 'replaced'
+  occurredAt: string // ISO date-time
+  /** Null when no user is recorded for the event. */
+  actor: { id: string; displayName: string } | null
+  description: string
+  details: Record<string, unknown>
+}
+
 /**
  * Create/update payload. PUT replaces the whole asset (ADR-0004), so an edit
  * sends `notes` back even though the form does not show it. `tag` cannot
