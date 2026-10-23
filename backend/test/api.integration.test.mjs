@@ -1150,6 +1150,34 @@ describe('asset management API', { skip: skip || false }, () => {
     const valid = (replacementAssetId) => ({ replacementAssetId, replacedOn: '2026-10-20', reason: 'Screen broken' });
     const eventCount = async (id) => (await api('GET', `/assets/${id}/events`)).body.items.length;
 
+    /**
+     * Holds a row lock on `assetId` while `start()` sends requests, and releases it once Postgres reports
+     * `waiting` of them blocked on a lock. The overlap is certain; only the order they then run in is left to chance.
+     */
+    async function raceBehindLock(assetId, start, waiting = 2) {
+      const blocker = await pool.connect();
+      try {
+        await blocker.query('BEGIN');
+        await blocker.query('SELECT 1 FROM assets WHERE id = $1 FOR UPDATE', [assetId]);
+        const racing = start();
+        const deadline = Date.now() + 5000;
+        for (;;) {
+          const { rows } = await pool.query(
+            `SELECT count(*)::int AS n FROM pg_stat_activity
+              WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+          );
+          if (rows[0].n >= waiting) break;
+          assert.ok(Date.now() < deadline, `expected ${waiting} requests waiting on the lock, saw ${rows[0].n}`);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        await blocker.query('COMMIT');
+        return await Promise.all(racing);
+      } finally {
+        await blocker.query('ROLLBACK').catch(() => {});
+        blocker.release();
+      }
+    }
+
     before(async () => {
       for (const [key, status] of [['old', 'AVAILABLE'], ['new', 'AVAILABLE'], ['loaned', 'ON_LOAN'], ['retired', 'RETIRED']]) {
         const res = await api('POST', '/assets', asset('REPL-' + key.toUpperCase(), { status }));
@@ -1237,6 +1265,47 @@ describe('asset management API', { skip: skip || false }, () => {
 
       assert.equal((await api('PUT', '/assets/' + ids.new, asset('REPL-NEW', { status: 'REPLACED' }))).status, 422);
       assert.equal((await api('POST', '/assets', asset('REPL-DIRECT', { status: 'REPLACED' }))).status, 422);
+    });
+
+    test('two simultaneous replacements of one asset: one 201, one 422, one relationship, one event pair', async () => {
+      const make = async (tag) => (await api('POST', '/assets', asset(tag))).body.id;
+      const oldId = await make('RACE-OLD');
+      const newIds = [await make('RACE-NEW-A'), await make('RACE-NEW-B')];
+
+      const results = await raceBehindLock(oldId, () => newIds.map((id) => replace(oldId, valid(id))));
+
+      assert.deepEqual(results.map((r) => r.status).sort(), [201, 422]);
+      const winner = results.find((r) => r.status === 201).body;
+      const loser = results.find((r) => r.status === 422).body;
+      assert.match(loser.error.fields.asset, /RACE-OLD cannot be replaced/);
+
+      const saved = await pool.query('SELECT new_asset_id FROM asset_replacements WHERE old_asset_id = $1', [oldId]);
+      assert.deepEqual(saved.rows.map((r) => r.new_asset_id), [winner.newAssetId]);
+      const events = await pool.query(
+        `SELECT asset_id, count(*)::int AS n FROM asset_events
+          WHERE event_type = 'replaced' AND asset_id = ANY($1::uuid[]) GROUP BY asset_id`,
+        [[oldId, ...newIds]],
+      );
+      assert.deepEqual(
+        Object.fromEntries(events.rows.map((r) => [r.asset_id, r.n])),
+        { [oldId]: 1, [winner.newAssetId]: 1 },
+      );
+      assert.equal((await api('GET', '/assets/' + oldId)).body.status, 'REPLACED');
+    });
+
+    test('an edit queued behind a replacement is answered for the new state, never 404', async () => {
+      const oldId = (await api('POST', '/assets', asset('RACE-EDIT-OLD'))).body.id;
+      const newId = (await api('POST', '/assets', asset('RACE-EDIT-NEW'))).body.id;
+
+      const [replaced, edit] = await raceBehindLock(oldId, () => [
+        replace(oldId, valid(newId)),
+        api('PUT', '/assets/' + oldId, asset('RACE-EDIT-OLD', { name: 'Renamed while queued' })),
+      ]);
+
+      assert.equal(replaced.status, 201, JSON.stringify(replaced.body));
+      // Either order is valid: the edit ran first (200), or it ran after the replacement and was refused
+      // because an edit may not take an asset out of REPLACED (422).
+      assert.ok([200, 422].includes(edit.status), `edit answered ${edit.status} ${JSON.stringify(edit.body)}`);
     });
   });
 
