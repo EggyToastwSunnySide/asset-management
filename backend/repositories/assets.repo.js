@@ -137,6 +137,15 @@ async function listAssetEvents(assetId) {
   return rows;
 }
 
+/**
+ * Row-locks assets in id order, so two transactions locking the same pair cannot deadlock. Locks only, no joins:
+ * after waiting, Postgres re-checks a locked row against the query's joins, so a status change by the transaction
+ * we waited for would drop the row and a lookup through SELECT_ASSET would report it as not found. Read after this.
+ */
+function lockAssets(client, ids) {
+  return client.query('SELECT 1 FROM assets WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE', [ids]);
+}
+
 function assetNotFound() {
   return new ApiError(404, 'NOT_FOUND', 'Asset not found');
 }
@@ -243,13 +252,8 @@ const TRACKED_FIELDS = [
  */
 async function updateAsset(id, input, userId) {
   return db.withTransaction(async (client) => {
-    const { rows } = await client.query(
-      `${SELECT_ASSET}
-        WHERE a.id = $1 AND a.deleted_at IS NULL
-          FOR UPDATE OF a`,
-      [id],
-    );
-    const current = rows[0];
+    await lockAssets(client, [id]);
+    const current = await findAsset(id, client);
     if (!current) throw assetNotFound();
 
     // The schema makes asset_tag immutable (trigger); say so per field rather
@@ -343,12 +347,9 @@ async function replaceAsset(pathId, input, userId) {
     throw validationError({ replacementAssetId: 'An asset cannot replace itself' });
   }
   return db.withTransaction(async (client) => {
-    // Locked in id order, so two transactions touching the same pair cannot deadlock.
+    await lockAssets(client, [oldId, input.replacementAssetId]);
     const { rows } = await client.query(
-      `${SELECT_ASSET}
-        WHERE a.id = ANY($1::uuid[]) AND a.deleted_at IS NULL
-        ORDER BY a.id
-          FOR UPDATE OF a`,
+      `${SELECT_ASSET} WHERE a.id = ANY($1::uuid[]) AND a.deleted_at IS NULL`,
       [[oldId, input.replacementAssetId]],
     );
     const old = rows.find((row) => row.id === oldId);
